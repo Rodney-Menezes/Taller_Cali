@@ -14,6 +14,11 @@ from modules.fixed_income import calculate_bond_metrics, simulate_yield_shocks, 
 from modules.timing_signals import generate_timing_recommendations, apply_frac_diff
 from modules.portfolio_monte_carlo import simulate_multivariate_portfolio_mc
 from modules.deep_learning_model import train_deep_learning_agent
+from modules.hrp_optimizer import optimize_hrp_portfolio
+from modules.backtester import run_portfolio_backtest
+from modules.black_litterman import calculate_black_litterman
+from modules.stress_testing import simulate_crisis_stress
+from modules.market_regimes import detect_market_regimes
 
 # Configuración general de la página
 st.set_page_config(
@@ -167,17 +172,91 @@ with st.spinner("Descargando cotizaciones de mercado y estimando matrices de cov
     prices_df = market_data['prices']
     returns_df = market_data['returns']
     spreads_dict = market_data['spreads']
-    latest_prices = market_data['latest_prices']
+# -------------------------------------------------------------
+# MOTOR DE INFERENCIA EN CACHÉ PARA DEEP LEARNING (GLOBAL)
+# -------------------------------------------------------------
+@st.cache_data(ttl=1800, show_spinner=False)
+def compute_cached_dl_signals(tickers_tuple, prices_sub, returns_sub, epochs=10, mode_idx=0):
+    h_dim = 16 if mode_idx == 0 else 24
+    s_len = 10 if mode_idx == 0 else 12
+    
+    dl_results_map = {}
+    dl_signals_list = []
+    
+    for ticker in tickers_tuple:
+        p_s = prices_sub[ticker].dropna()
+        r_s = returns_sub[ticker].dropna()
+        fd_s = apply_frac_diff(np.log(p_s), d=0.40)
+        
+        dl_res = train_deep_learning_agent(
+            p_s, r_s, fd_s,
+            epochs=epochs,
+            seq_len=s_len,
+            hidden_dim=h_dim,
+            num_layers=1,
+            batch_size=32,
+            lr=0.008
+        )
+        dl_results_map[ticker] = dl_res
+        
+        curr_price = float(p_s.iloc[-1])
+        daily_vol = float(r_s.iloc[-20:].std())
+        half_life = float(np.clip(np.log(2.0) / (daily_vol * 15 + 1e-4), 3, 30))
+        
+        sig = dl_res['signal']
+        if sig == "LONG":
+            act = "Comprar en Largo (Long)"
+            sl = curr_price * (1.0 - 2.0 * daily_vol)
+            tp = curr_price * (1.0 + 3.0 * daily_vol)
+            h_days = int(np.round(half_life * 0.8))
+        elif sig == "SHORT":
+            act = "Vender en Corto (Short)"
+            sl = curr_price * (1.0 + 2.0 * daily_vol)
+            tp = curr_price * (1.0 - 3.0 * daily_vol)
+            h_days = int(np.round(half_life * 0.8))
+        else:
+            act = "Neutral / Mantener (Cash)"
+            sl = curr_price * (1.0 - daily_vol)
+            tp = curr_price * (1.0 + daily_vol)
+            h_days = int(np.round(half_life))
+            
+        h_days = max(3, min(45, h_days))
+        
+        dl_signals_list.append({
+            'Activo': ticker,
+            'Precio Actual ($)': round(curr_price, 2),
+            'Señal AI': sig,
+            'Recomendación': act,
+            'Confianza Softmax': f"{dl_res['confidence']:.1f}%",
+            'Accuracy Validación (OOS)': f"{dl_res['val_acc']:.1f}%",
+            'Maduración Sugerida (Días)': h_days,
+            'Take-Profit Sugerido ($)': round(tp, 2),
+            'Stop-Loss Dinámico ($)': round(sl, 2),
+            'Volatilidad Diaria': f"{daily_vol*100:.2f}%"
+        })
+        
+    return pd.DataFrame(dl_signals_list), dl_results_map
+
+# Precálculo global de Deep Learning para modelos de Black-Litterman y Señales AI
+dl_signals_df_global, dl_results_global = compute_cached_dl_signals(
+    tuple(selected_tickers),
+    prices_df[selected_tickers],
+    returns_df[selected_tickers],
+    epochs=10,
+    mode_idx=0
+)
 
 # -------------------------------------------------------------
 # DEFINICIÓN DE TABS DEL DASHBOARD
 # -------------------------------------------------------------
-tab_risk, tab_port, tab_bonds, tab_signals, tab_theory = st.tabs([
+tab_risk, tab_port, tab_backtest, tab_stress, tab_bonds, tab_signals, tab_theory = st.tabs([
     "📋 1. Perfil del Inversor & Gamma",
-    "📊 2. Optimización & Presupuesto",
-    "📉 3. Renta Fija (Duración & Convexidad)",
-    "⏱️ 4. Señales ML & Maduración",
-    "🧠 5. Laboratorio Didáctico de Modelos"
+    "📊 2. Optimización (Markowitz, HRP & Black-Litterman)",
+    "📈 3. Backtesting Histórico & Underwater Plot",
+    "🌪️ 4. Stress-Testing de Crisis & Regímenes Macro",
+    "📉 5. Dinámica de Renta Fija",
+    "⏱️ 6. Señales Deep Learning & Maduración",
+    "🧠 7. Laboratorio Didáctico de Modelos"
 ])
 
 # =============================================================
@@ -284,13 +363,13 @@ with tab_risk:
         st.metric("Tope Recomendado en Renta Variable", f"{risk_profile['max_equity_pct']}% del Patrimonio Total")
 
 # =============================================================
-# TAB 2: OPTIMIZACIÓN DE PORTAFOLIO & ASIGNACIÓN PRESUPUESTARIA
+# TAB 2: OPTIMIZACIÓN MULTI-MODELO & ASIGNACIÓN PRESUPUESTARIA
 # =============================================================
 with tab_port:
-    st.subheader("Optimización Cuantitativa de Utilidad con Contracción Ledoit-Wolf")
-    st.write(f"Optimizando asignación para un presupuesto de **${budget:,.2f} USD** con parámetro de aversión **$\\gamma = {gamma_val:.2f}$**.")
+    st.subheader("Optimización Cuantitativa de Portafolios: Markowitz, HRP & Black-Litterman")
+    st.write(f"Asignación de capital institucional para un presupuesto de **${budget:,.2f} USD** con coeficiente de aversión al riesgo **$\\gamma = {gamma_val:.2f}$**.")
     
-    # Ejecutar optimización matemática con restricción de concentración
+    # 1. Ejecutar Optimizador 1: Markowitz con Contracción Ledoit-Wolf
     opt_result = optimize_portfolio_utility(
         returns=returns_df,
         gamma=gamma_val,
@@ -302,12 +381,73 @@ with tab_port:
         max_weight_per_asset=max_weight_cap / 100.0
     )
     
-    # Tarjetas métricas de resumen
+    # 2. Ejecutar Optimizador 2: Hierarchical Risk Parity (HRP) de Marcos López de Prado
+    hrp_result = optimize_hrp_portfolio(
+        returns_df=returns_df[selected_tickers],
+        latest_prices=latest_prices,
+        budget=budget,
+        max_weight_cap=max_weight_cap / 100.0
+    )
+    
+    # 3. Ejecutar Optimizador 3: Black-Litterman con Vistas de Deep Learning (PyTorch BiLSTM)
+    bl_result = calculate_black_litterman(
+        cov_matrix=opt_result['cov_lw'],
+        asset_names=opt_result['asset_names'],
+        dl_signals_dict=dl_results_global,
+        latest_prices=latest_prices,
+        budget=budget,
+        gamma=gamma_val
+    )
+    
+    # Selector de Paradigma Cuantitativo Activo
+    st.markdown("### 🎛️ Selección de Paradigma Cuantitativo de Asignación")
+    alloc_model_choice = st.radio(
+        "Seleccione el Motor Cuantitativo para la Cartera:",
+        [
+            "🎯 Markowitz (Máxima Utilidad Cuadrática con Ledoit-Wolf)",
+            "🧬 Hierarchical Risk Parity (HRP - Machine Learning no supervisado)",
+            "🧠 Black-Litterman con Vistas de IA (Equilibrio CAPM + Deep Learning BiLSTM)"
+        ],
+        index=0,
+        horizontal=True
+    )
+    
+    # Enrutar parámetros del modelo seleccionado
+    if "Markowitz" in alloc_model_choice:
+        active_weights = opt_result['weights_lw'].to_dict()
+        active_shares = opt_result['shares'].to_dict()
+        active_invested = opt_result['total_invested']
+        active_cash = opt_result['cash_remaining']
+        active_ret = opt_result['port_ret_lw']
+        active_vol = opt_result['port_vol_lw']
+        active_sharpe = opt_result['sharpe_lw']
+        active_model_desc = "Markowitz con Ledoit-Wolf"
+    elif "Hierarchical Risk Parity" in alloc_model_choice:
+        active_weights = hrp_result['weights']
+        active_shares = hrp_result['shares']
+        active_invested = hrp_result['invested_capital']
+        active_cash = hrp_result['cash_buffer']
+        active_ret = hrp_result['expected_return']
+        active_vol = hrp_result['volatility']
+        active_sharpe = hrp_result['sharpe']
+        active_model_desc = "HRP (Machine Learning)"
+    else:
+        active_weights = bl_result['weights']
+        active_shares = bl_result['shares']
+        active_invested = bl_result['invested_capital']
+        active_cash = bl_result['cash_buffer']
+        w_arr = np.array([active_weights.get(a, 0.0) for a in opt_result['asset_names']])
+        active_ret = float(np.dot(w_arr, [bl_result['mu_bl'].get(a, 0.05) for a in opt_result['asset_names']]))
+        active_vol = float(np.sqrt(np.dot(w_arr, np.dot(opt_result['cov_lw'], w_arr))))
+        active_sharpe = float((active_ret - 0.04) / (active_vol + 1e-8))
+        active_model_desc = "Black-Litterman impulsado por IA"
+        
+    # Tarjetas métricas de resumen del modelo activo
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-    m_col1.metric("Retorno Esperado Anual", f"{opt_result['port_ret_lw']*100:.2f}%")
-    m_col2.metric("Volatilidad Anual (Riesgo)", f"{opt_result['port_vol_lw']*100:.2f}%")
-    m_col3.metric("Ratio de Sharpe Regularizado", f"{opt_result['sharpe_lw']:.2f}")
-    m_col4.metric("Contracción Ledoit-Wolf (δ*)", f"{opt_result['shrinkage_intensity']:.4f}")
+    m_col1.metric("Retorno Esperado Anual", f"{active_ret*100:.2f}%")
+    m_col2.metric("Volatilidad Anual (Riesgo)", f"{active_vol*100:.2f}%")
+    m_col3.metric("Ratio de Sharpe Estimado", f"{active_sharpe:.2f}")
+    m_col4.metric("Modelo Cuantitativo Activo", active_model_desc)
     
     st.markdown("---")
     
@@ -328,14 +468,14 @@ with tab_port:
         else:
             return "💻 Renta Variable (Mega-Cap)"
 
-    # Tabla de Asignación Discreta de Acciones
+    # Tabla de Asignación Discreta de Acciones del modelo activo
     alloc_df = pd.DataFrame({
         "Ticker": opt_result['asset_names'],
         "Clase de Activo": [get_asset_category(a) for a in opt_result['asset_names']],
         "Precio Actual ($)": [round(latest_prices[a], 2) for a in opt_result['asset_names']],
-        "Peso Óptimo (%)": [round(opt_result['weights_lw'][a] * 100, 2) for a in opt_result['asset_names']],
-        "Títulos Enteros": [opt_result['shares'][a] for a in opt_result['asset_names']],
-        "Capital Asignado ($)": [round(opt_result['invested_cash'][a], 2) for a in opt_result['asset_names']],
+        "Peso Óptimo (%)": [round(active_weights.get(a, 0.0) * 100, 2) for a in opt_result['asset_names']],
+        "Títulos Enteros": [active_shares.get(a, 0) for a in opt_result['asset_names']],
+        "Capital Asignado ($)": [round(active_shares.get(a, 0) * latest_prices.get(a, 0), 2) for a in opt_result['asset_names']],
         "Spread Estimado (bps)": [round(spreads_dict.get(a, 0.001)*10000, 1) for a in opt_result['asset_names']]
     })
     
@@ -344,47 +484,77 @@ with tab_port:
     t_col1, t_col2 = st.columns([1.5, 0.9])
     
     with t_col1:
-        st.markdown("#### 🎯 Asignación Discreta por Título (Resolución de Presupuesto)")
+        st.markdown(f"#### 🎯 Asignación Discreta de Capital ({active_model_desc})")
         st.dataframe(alloc_df.set_index("Ticker"), use_container_width=True)
         
-        # Balance de Caja
         c_col1, c_col2, c_col3 = st.columns(3)
-        c_col1.metric("Capital Invertido en Acciones", f"${opt_result['total_invested']:,.2f}")
-        c_col2.metric("Efectivo Remanente (Buffer)", f"${opt_result['cash_remaining']:,.2f}")
-        c_col3.metric("Costos Totales de Entrada", f"${opt_result['total_costs_paid']:,.2f}")
+        c_col1.metric("Capital Invertido", f"${active_invested:,.2f}")
+        c_col2.metric("Efectivo Remanente (CASH)", f"${active_cash:,.2f}")
+        c_col3.metric("Porcentaje Desplegado", f"{(active_invested/budget)*100:.1f}%")
         
     with t_col2:
-        st.markdown("#### 🥧 Distribución de Ponderaciones Óptimas")
+        st.markdown("#### 🥧 Distribución de Ponderaciones")
         pie_data = alloc_df[alloc_df["Capital Asignado ($)"] > 0]
         if not pie_data.empty:
             labels = list(pie_data["Ticker"]) + ["CASH (Liquidez)"]
-            values = list(pie_data["Capital Asignado ($)"]) + [opt_result['cash_remaining']]
+            values = list(pie_data["Capital Asignado ($)"]) + [active_cash]
             fig_pie = px.pie(names=labels, values=values, hole=0.45, 
                              color_discrete_sequence=px.colors.qualitative.Plotly)
             fig_pie.update_layout(margin=dict(l=10, r=10, t=20, b=20), height=300)
             st.plotly_chart(fig_pie, use_container_width=True)
         else:
-            st.warning("El perfil es altamente conservador o el presupuesto por activo no alcanza para comprar 1 acción completa.")
+            st.warning("El presupuesto actual no alcanza para comprar al menos 1 acción completa de cada activo seleccionado.")
             
     st.markdown("---")
     
-    # Comparación Visual: Ledoit-Wolf vs Markowitz Clásico (Sample Covariance)
-    st.markdown("#### ⚖️ Efecto de Regularización: Ledoit-Wolf vs. Covarianza Muestral Clásica")
-    comp_df = pd.DataFrame({
+    # -------------------------------------------------------------
+    # COMPARATIVA MULTI-MODELO (MARKOWITZ VS HRP VS BLACK-LITTERMAN VS 1/N)
+    # -------------------------------------------------------------
+    st.markdown("#### ⚖️ Comparativa Multi-Modelo: Markowitz vs. HRP vs. Black-Litterman vs. 1/N")
+    multi_comp_df = pd.DataFrame({
         "Activo": opt_result['asset_names'],
-        "Ledoit-Wolf (Regularizado)": opt_result['weights_lw'].values * 100,
-        "Covarianza Muestral (Sin regularizar)": opt_result['weights_sample'].values * 100
+        "Markowitz (Ledoit-Wolf)": [round(opt_result['weights_lw'].get(a, 0.0) * 100, 2) for a in opt_result['asset_names']],
+        "HRP (Machine Learning)": [round(hrp_result['weights'].get(a, 0.0) * 100, 2) for a in opt_result['asset_names']],
+        "Black-Litterman (IA)": [round(bl_result['weights'].get(a, 0.0) * 100, 2) for a in opt_result['asset_names']],
+        "Equiponderado (1/N)": [round(100.0 / len(opt_result['asset_names']), 2)] * len(opt_result['asset_names'])
     })
     
-    fig_comp = px.bar(
-        comp_df, x="Activo", y=["Ledoit-Wolf (Regularizado)", "Covarianza Muestral (Sin regularizar)"],
+    fig_multi = px.bar(
+        multi_comp_df, x="Activo",
+        y=["Markowitz (Ledoit-Wolf)", "HRP (Machine Learning)", "Black-Litterman (IA)", "Equiponderado (1/N)"],
         barmode="group",
-        labels={"value": "Ponderación en Portafolio (%)", "variable": "Estimador"},
-        title="Prevención de Sobreestimación de Pesos Extremos (Shrinkage Effect)"
+        title="Ponderaciones de Capital (%) según Paradigma de Asignación Cuantitativa"
     )
-    fig_comp.update_layout(height=350, margin=dict(l=20, r=20, t=40, b=20))
-    st.plotly_chart(fig_comp, use_container_width=True)
-    st.caption("Nota: Observe cómo la covarianza muestral tradicional tiende a concentrar de manera espuria el capital en activos con anomalías pasadas. Ledoit-Wolf contrae la matriz hacia un estimador estructurado, eliminando ruido y estabilizando pesos.")
+    fig_multi.update_layout(height=340, margin=dict(l=20, r=20, t=40, b=20))
+    st.plotly_chart(fig_multi, use_container_width=True)
+    
+    # Expansores de Diagnóstico Específico por Modelo
+    with st.expander("🧬 Ver Mecanismo Interno: Dendrograma de Clustering Jerárquico (HRP López de Prado)"):
+        st.write("El algoritmo **Hierarchical Risk Parity (HRP)** agrupa los activos en un árbol de dependencias mediante enlace simple (*single linkage*) sobre la métrica de distancia $d_{i,j} = \\sqrt{\\frac{1}{2}(1 - \\rho_{i,j})}$. No invierte matrices de covarianza, lo que evita la inestabilidad de Markowitz.")
+        if hrp_result['dendrogram_fig'] is not None:
+            st.plotly_chart(hrp_result['dendrogram_fig'], use_container_width=True)
+            
+    with st.expander("🧠 Ver Mecanismo Interno: Vistas Cuantitativas y Retornos Posteriores (Black-Litterman AI)"):
+        st.write("El modelo de **Black-Litterman** fusiona el retorno implícito de equilibrio de mercado (Prior CAPM $\\Pi$) con las vistas direccionales probabilísticas generadas por la Red Neuronal BiLSTM.")
+        st.plotly_chart(bl_result['fig_comparison'], use_container_width=True)
+        if not bl_result['views_table'].empty:
+            st.markdown("##### Vistas Cuantitativas Inyectadas desde la Red Neuronal (Vector Q):")
+            st.dataframe(bl_result['views_table'].set_index("Activo"), use_container_width=True)
+            
+    with st.expander("⚖️ Ver Mecanismo Interno: Contracción de Covarianza de Ledoit-Wolf"):
+        st.write(f"Intensidad de contracción óptima calculada: **$\\delta^* = {opt_result['shrinkage_intensity']:.4f}$**. Reduce el error cuadrático medio de estimación comprimiendo los autovalores ruidosos hacia la correlación media del mercado.")
+        comp_df = pd.DataFrame({
+            "Activo": opt_result['asset_names'],
+            "Ledoit-Wolf (Regularizado)": opt_result['weights_lw'].values * 100,
+            "Covarianza Muestral (Sin regularizar)": opt_result['weights_sample'].values * 100
+        })
+        fig_lw_comp = px.bar(
+            comp_df, x="Activo", y=["Ledoit-Wolf (Regularizado)", "Covarianza Muestral (Sin regularizar)"],
+            barmode="group",
+            title="Efecto de Encogimiento (Shrinkage): Ledoit-Wolf vs Covarianza Muestral"
+        )
+        fig_lw_comp.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=20))
+        st.plotly_chart(fig_lw_comp, use_container_width=True)
 
     st.markdown("---")
     st.markdown("### 🎲 Simulación Monte Carlo Multivariada de TODO el Portafolio (Cholesky & Ledoit-Wolf)")
@@ -401,14 +571,14 @@ with tab_port:
         
     ann_mu_vec = returns_df.mean().values * 252
     
-    # Ejecutar simulación de TODO el portafolio
+    # Ejecutar simulación de TODO el portafolio con el modelo activo
     mc_port_res = simulate_multivariate_portfolio_mc(
-        shares_dict=opt_result['shares'].to_dict(),
+        shares_dict=active_shares,
         latest_prices=latest_prices,
         annual_returns=ann_mu_vec,
         cov_matrix=opt_result['cov_lw'],
         initial_budget=budget,
-        cash_buffer=opt_result['cash_remaining'],
+        cash_buffer=active_cash,
         asset_names=opt_result['asset_names'],
         time_horizon_days=h_days,
         n_simulations=n_sims,
@@ -429,49 +599,28 @@ with tab_port:
     col_mc_chart1, col_mc_chart2 = st.columns([1.6, 1.0])
     
     with col_mc_chart1:
-        # Abanico de Cono de Riqueza Temporal
         cone = mc_port_res['cone_df']
         fig_cone = go.Figure()
         
-        # Banda 90% (P05 a P95)
-        fig_cone.add_trace(go.Scatter(
-            x=cone['Dia'], y=cone['P95'], mode='lines', line=dict(width=0), showlegend=False
-        ))
-        fig_cone.add_trace(go.Scatter(
-            x=cone['Dia'], y=cone['P05'], mode='lines', line=dict(width=0),
-            fill='tonexty', fillcolor='rgba(0, 230, 118, 0.15)', name='Intervalo de Confianza 90% (P05 - P95)'
-        ))
-        
-        # Banda 50% (P25 a P75)
-        fig_cone.add_trace(go.Scatter(
-            x=cone['Dia'], y=cone['P75'], mode='lines', line=dict(width=0), showlegend=False
-        ))
-        fig_cone.add_trace(go.Scatter(
-            x=cone['Dia'], y=cone['P25'], mode='lines', line=dict(width=0),
-            fill='tonexty', fillcolor='rgba(0, 230, 118, 0.30)', name='Intervalo Intercuartil 50% (P25 - P75)'
-        ))
-        
+        # Banda 90%
+        fig_cone.add_trace(go.Scatter(x=cone['Dia'], y=cone['P95'], mode='lines', line=dict(width=0), showlegend=False))
+        fig_cone.add_trace(go.Scatter(x=cone['Dia'], y=cone['P05'], mode='lines', line=dict(width=0),
+                                      fill='tonexty', fillcolor='rgba(0, 230, 118, 0.15)', name='Intervalo 90% (P05 - P95)'))
+        # Banda 50%
+        fig_cone.add_trace(go.Scatter(x=cone['Dia'], y=cone['P75'], mode='lines', line=dict(width=0), showlegend=False))
+        fig_cone.add_trace(go.Scatter(x=cone['Dia'], y=cone['P25'], mode='lines', line=dict(width=0),
+                                      fill='tonexty', fillcolor='rgba(0, 230, 118, 0.30)', name='Intervalo 50% (P25 - P75)'))
         # Mediana
-        fig_cone.add_trace(go.Scatter(
-            x=cone['Dia'], y=cone['Mediana'], mode='lines', name='Trayectoria Mediana (P50)',
-            line=dict(color='#00E676', width=3)
-        ))
-        
-        # Presupuesto Inicial
-        fig_cone.add_hline(
-            y=budget, line_dash="dash", line_color="#FFD600",
-            annotation_text=f"Capital Inicial (${budget:,.0f})", annotation_position="top left"
-        )
-        
+        fig_cone.add_trace(go.Scatter(x=cone['Dia'], y=cone['Mediana'], mode='lines', name='Mediana (P50)', line=dict(color='#00E676', width=3)))
+        fig_cone.add_hline(y=budget, line_dash="dash", line_color="#FFD600", annotation_text=f"Capital Inicial (${budget:,.0f})")
         fig_cone.update_layout(
-            title=f"Cono de Riqueza Probabilístico de TODO el Portafolio ({h_days} días de mercado)",
+            title=f"Cono de Riqueza Probabilístico de la Cartera ({h_days} días de mercado)",
             xaxis_title="Días de Negociación", yaxis_title="Valor de la Cartera ($ USD)",
             height=380, margin=dict(l=20, r=20, t=40, b=20), hovermode="x unified"
         )
         st.plotly_chart(fig_cone, use_container_width=True)
         
     with col_mc_chart2:
-        # Distribución de Riqueza Final al Horizonte
         fig_hist = px.histogram(
             x=mc_port_res['final_wealth'], nbins=30,
             title="Distribución de Capital Final",
@@ -485,7 +634,107 @@ with tab_port:
         st.plotly_chart(fig_hist, use_container_width=True)
 
 # =============================================================
-# TAB 3: DINÁMICA DE RENTA FIJA (DURACIÓN Y CONVEXIDAD)
+# TAB 3: BACKTESTING HISTÓRICO WALK-FORWARD & UNDERWATER PLOT
+# =============================================================
+with tab_backtest:
+    st.subheader(f"Backtesting Walk-Forward Histórico ({hist_period}) & Ratios Institucionales")
+    st.write("Audite cómo se habría comportado la estrategia de portafolio frente al Benchmark de mercado (`SPY` o 60/40) en el pasado reciente.")
+    
+    bt_res = run_portfolio_backtest(prices_df, active_weights, benchmark_ticker="SPY", budget=budget, rf=0.04)
+    
+    if bt_res is not None:
+        bk1, bk2, bk3, bk4, bk5, bk6 = st.columns(6)
+        bk1.metric("CAGR (Retorno Anual)", f"{bt_res['cagr']*100:+.2f}%", 
+                   delta=f"{(bt_res['cagr'] - bt_res['bm_cagr'])*100:+.2f}% vs BM")
+        bk2.metric("Volatilidad Anualizada", f"{bt_res['ann_vol']*100:.2f}%")
+        bk3.metric("Ratio de Sharpe", f"{bt_res['sharpe']:.2f}")
+        bk4.metric("Ratio de Sortino", f"{bt_res['sortino']:.2f}", help="Penaliza únicamente volatilidad bajista (pérdidas reales).")
+        bk5.metric("Ratio de Calmar", f"{bt_res['calmar']:.2f}", help="Relación entre CAGR y Máximo Drawdown.")
+        bk6.metric("Máximo Drawdown", f"{bt_res['max_drawdown']*100:.2f}%", delta_color="inverse")
+        
+        st.markdown("---")
+        st.plotly_chart(bt_res['fig_equity'], use_container_width=True)
+        st.plotly_chart(bt_res['fig_underwater'], use_container_width=True)
+        
+        st.markdown("""
+        > [!NOTE]
+        > **Fundamento Metodológico**:
+        > - **Ratio de Sortino**: Mientras el Sharpe tradicional penaliza tanto las subidas como las bajadas, el Sortino penaliza exclusivamente la varianza perjudicial ($r_t < 0$). Un Sortino superior al Sharpe refleja asimetría positiva en las ganancias.
+        > - **Ratio de Calmar**: Mide la velocidad de recuperación patrimonial frente a la peor caída sufrida en el período. Ratios superiores a 1.0 son el estándar de excelencia en fondos cuantitativos.
+        """)
+
+# =============================================================
+# TAB 4: STRESS-TESTING MACROECONÓMICO & REGÍMENES DE MERCADO (GMM)
+# =============================================================
+with tab_stress:
+    st.subheader("Stress-Testing de Crisis Históricas & Regímenes de Mercado (GMM)")
+    st.write("Evalúe la resiliencia patrimonial de su cartera ante las peores crisis financieras globales y diagnostique el régimen macro actual con Machine Learning no supervisado.")
+    
+    subtab_stress, subtab_regimes = st.tabs([
+        "🌪️ 1. Stress-Testing de Crisis Históricas",
+        "🔮 2. Regímenes de Mercado (Gaussian Mixture Models)"
+    ])
+    
+    with subtab_stress:
+        st.markdown("#### 💥 Simulación de Shocks de Crisis Financieras Globales")
+        st.write(f"Proyección del impacto patrimonial sobre su capital de **${budget:,.2f} USD** simulando los 4 eventos de cola sistémicos más severos de la historia moderna.")
+        
+        stress_res = simulate_crisis_stress(active_weights, budget=budget)
+        st.plotly_chart(stress_res['fig_stress'], use_container_width=True)
+        
+        st.markdown("---")
+        st.markdown("##### 🔍 Auditoría Desglosada Activo por Activo:")
+        selected_crisis_key = st.selectbox(
+            "Seleccione el Escenario de Crisis a Inspeccionar:",
+            list(stress_res['scenarios'].keys()),
+            format_func=lambda k: stress_res['scenarios'][k]['name']
+        )
+        c_detail = stress_res['scenarios'][selected_crisis_key]
+        
+        cs1, cs2, cs3, cs4 = st.columns(4)
+        cs1.metric("Retorno de la Cartera", f"{c_detail['port_return']*100:+.2f}%")
+        cs2.metric("Impacto Neto en USD", f"${c_detail['dollar_impact']:+,.2f}")
+        cs3.metric("Capital Remanente Proyectado", f"${c_detail['projected_wealth']:,.2f}")
+        cs4.metric("Resiliencia vs Benchmark 60/40", f"{c_detail['resilience_vs_bm']:+.2f}%", 
+                   delta=f"{c_detail['resilience_vs_bm']:+.2f}%")
+        
+        st.dataframe(c_detail['breakdown_df'].set_index("Activo"), use_container_width=True)
+        st.info(f"**Contexto Histórico**: {c_detail['description']}")
+        
+    with subtab_regimes:
+        st.markdown("#### 🔮 Detección No Supervisada de Regímenes de Mercado (GMM)")
+        st.write("Un modelo de Mixtura Gaussiana (Gaussian Mixture Model) segmenta en tiempo real la dinámica estocástica del mercado en 3 regímenes latentes basados en retornos y volatilidad.")
+        
+        bm_series = returns_df['SPY'] if 'SPY' in returns_df.columns else returns_df.mean(axis=1)
+        reg_data = detect_market_regimes(bm_series)
+        
+        if reg_data is not None:
+            curr_id = reg_data['current_regime_id']
+            curr_color = "#00E676" if curr_id == 0 else ("#FFD600" if curr_id == 1 else "#FF5252")
+            probs = reg_data['current_probs']
+            
+            st.markdown(f"""
+            <div style="background-color: #1E2638; border: 1px solid #2D3748; border-left: 6px solid {curr_color}; padding: 14px 18px; border-radius: 8px; margin-bottom: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                    <div>
+                        <span style="font-size: 1.15rem; font-weight: bold; color: #FFFFFF;">Estado Macroeconómico Actual: </span>
+                        <span style="font-size: 1.15rem; font-weight: bold; color: {curr_color};">{reg_data['current_regime_name']}</span>
+                    </div>
+                    <div style="color: #ECEFF1; font-size: 0.95rem;">
+                        Probabilidad GMM: 🟢 Bull: <strong>{probs[0]*100:.1f}%</strong> | 🟡 Lateral: <strong>{probs[1]*100:.1f}%</strong> | 🔴 Bear: <strong>{probs[2]*100:.1f}%</strong>
+                    </div>
+                </div>
+                <div style="margin-top: 10px; font-size: 0.88rem; color: #B0BEC5; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;">
+                    <strong>Diagnóstico Macroeconómico</strong>: {reg_data['rec_macro']}<br>
+                    <strong>Ajuste Cuantitativo Recomendado</strong>: {reg_data['risk_action']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.plotly_chart(reg_data['fig_regimes'], use_container_width=True)
+
+# =============================================================
+# TAB 5: DINÁMICA DE RENTA FIJA (DURACIÓN Y CONVEXIDAD)
 # =============================================================
 with tab_bonds:
     st.subheader(f"Dinámica de Renta Fija: Activo Seleccionado `{fixed_income_ticker}`")
@@ -572,7 +821,7 @@ with tab_bonds:
     """)
 
 # =============================================================
-# TAB 4: SEÑALES ML/DL LONG/SHORT & TIEMPO DE MADURACIÓN
+# TAB 6: SEÑALES ML/DL LONG/SHORT & TIEMPO DE MADURACIÓN
 # =============================================================
 with tab_signals:
     st.subheader("Señales Direccionales de Inteligencia Artificial & Tiempos de Maduración")
@@ -611,81 +860,20 @@ with tab_signals:
         if st.button("🔄 Re-entrenar Modelos en Memoria", help="Limpia la caché de tensores y re-ejecuta el entrenamiento"):
             st.cache_data.clear()
 
-    # -------------------------------------------------------------
-    # ENTRENAMIENTO E INFERENCIA DE MODELOS EN CACHÉ EFICIENTE
-    # -------------------------------------------------------------
-    @st.cache_data(ttl=1800, show_spinner=False)
-    def compute_cached_dl_signals(tickers_tuple, prices_sub, returns_sub, epochs, mode_idx):
-        h_dim = 16 if mode_idx == 0 else 24
-        s_len = 10 if mode_idx == 0 else 12
-        
-        dl_results_map = {}
-        dl_signals_list = []
-        
-        for ticker in tickers_tuple:
-            p_s = prices_sub[ticker].dropna()
-            r_s = returns_sub[ticker].dropna()
-            fd_s = apply_frac_diff(np.log(p_s), d=0.40)
-            
-            dl_res = train_deep_learning_agent(
-                p_s, r_s, fd_s,
-                epochs=epochs,
-                seq_len=s_len,
-                hidden_dim=h_dim,
-                num_layers=1,
-                batch_size=32,
-                lr=0.008
-            )
-            dl_results_map[ticker] = dl_res
-            
-            curr_price = float(p_s.iloc[-1])
-            daily_vol = float(r_s.iloc[-20:].std())
-            half_life = float(np.clip(np.log(2.0) / (daily_vol * 15 + 1e-4), 3, 30))
-            
-            sig = dl_res['signal']
-            if sig == "LONG":
-                act = "Comprar en Largo (Long)"
-                sl = curr_price * (1.0 - 2.0 * daily_vol)
-                tp = curr_price * (1.0 + 3.0 * daily_vol)
-                h_days = int(np.round(half_life * 0.8))
-            elif sig == "SHORT":
-                act = "Vender en Corto (Short)"
-                sl = curr_price * (1.0 + 2.0 * daily_vol)
-                tp = curr_price * (1.0 - 3.0 * daily_vol)
-                h_days = int(np.round(half_life * 0.8))
-            else:
-                act = "Neutral / Mantener (Cash)"
-                sl = curr_price * (1.0 - daily_vol)
-                tp = curr_price * (1.0 + daily_vol)
-                h_days = int(np.round(half_life))
-                
-            h_days = max(3, min(45, h_days))
-            
-            dl_signals_list.append({
-                'Activo': ticker,
-                'Precio Actual ($)': round(curr_price, 2),
-                'Señal AI': sig,
-                'Recomendación': act,
-                'Confianza Softmax': f"{dl_res['confidence']:.1f}%",
-                'Accuracy Validación (OOS)': f"{dl_res['val_acc']:.1f}%",
-                'Maduración Sugerida (Días)': h_days,
-                'Take-Profit Sugerido ($)': round(tp, 2),
-                'Stop-Loss Dinámico ($)': round(sl, 2),
-                'Volatilidad Diaria': f"{daily_vol*100:.2f}%"
-            })
-            
-        return pd.DataFrame(dl_signals_list), dl_results_map
-
     dl_results = {}
     with st.spinner(f"Ejecutando inferencia con {'Deep Learning (PyTorch BiLSTM Ultraligera)' if use_deep_learning else 'Machine Learning (Random Forest)'}..."):
         if use_deep_learning:
-            active_signals_df, dl_results = compute_cached_dl_signals(
-                tuple(selected_tickers),
-                prices_df[selected_tickers],
-                returns_df[selected_tickers],
-                dl_epochs,
-                dl_mode_idx
-            )
+            if dl_epochs == 10 and dl_mode_idx == 0:
+                active_signals_df = dl_signals_df_global
+                dl_results = dl_results_global
+            else:
+                active_signals_df, dl_results = compute_cached_dl_signals(
+                    tuple(selected_tickers),
+                    prices_df[selected_tickers],
+                    returns_df[selected_tickers],
+                    epochs=dl_epochs,
+                    mode_idx=dl_mode_idx
+                )
         else:
             active_signals_df = generate_timing_recommendations(prices_df, returns_df)
             if 'Señal ML' in active_signals_df.columns:

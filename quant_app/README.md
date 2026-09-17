@@ -7,33 +7,41 @@ Plataforma Web interactiva basada en **Streamlit**, **Docker**, **Yahoo Finance 
 ## 🏛️ Características y Arquitectura del Sistema
 
 1. **Datos de Mercado Gratuitos en Tiempo Real (Yahoo Finance)**:
-   - Ingesta automática mediante `yfinance` para cualquier ticker (`AAPL`, `MSFT`, `NVDA`, `GOOGL`, `TLT`, etc.).
+   - Ingesta automática mediante `yfinance` para cualquier ticker (`AAPL`, `NVDA`, `IWM`, `TLT`, `BND`, etc.).
    - Modelado de microestructura: estimación de spreads bid-ask y volatilidad local.
    - Generador sintético GBM calibrado de contingencia autónoma si la API de Yahoo experimenta rate-limiting o interrupciones.
 
 2. **Aversión al Riesgo de Arrow-Pratt ($\gamma \in [1.0, 10.0]$)**:
-   - Cuestionario interactivo psicométrico y financiero de 5 dimensiones (horizonte temporal, tolerancia a drawdowns, objetivos, estabilidad de ingresos, experiencia de mercado).
+   - Cuestionario interactivo psicométrico y financiero de 5 dimensiones.
    - Calibración continua del coeficiente relativo de aversión al riesgo $\gamma$.
 
-3. **Optimización Cuantitativa de Utilidad & Restricción Presupuestaria**:
-   - Maximización de Utilidad Esperada cuadrática:
-     $$\max_{w} \quad w^T \mu - \frac{\gamma}{2} w^T \Sigma_{\text{LW}} w - \sum_{i=1}^N \left( c_{\text{broker}} |w_i - w_{0,i}| + \frac{\text{Spread}_i}{2} |w_i| \right)$$
-   - **Regularización de Ledoit-Wolf**: Contracción óptima de covarianza que mitiga el sobreajuste muestral y evita carteras espurias hiperconcentradas.
-   - **Asignación Discreta**: Conversión exacta de ponderaciones continuas a títulos enteros de acciones dado un presupuesto en \$ USD, calculando el remanente en efectivo (*cash buffer*).
-   - Soporte opcional para venta en corto (*Short Selling*).
+3. **Optimización Multi-Paradigma de Portafolios**:
+   - **Markowitz con Ledoit-Wolf**: Maximización de utilidad cuadrática con contracción analítica de covarianza y asignación discreta exacta en títulos enteros de acciones (\$ USD).
+   - **Hierarchical Risk Parity (HRP)**: Machine Learning no supervisado propuesto por Marcos López de Prado. Agrupa activos mediante clustering jerárquico (*single linkage*), cuasi-diagonalización y bisección recursiva con dendrograma interactivo.
+   - **Black-Litterman con Vistas de Deep Learning (IA)**: Fusión bayesiana entre el equilibrio de mercado CAPM ($\Pi$) y vistas direccionales probabilísticas extraídas de la Red Neuronal BiLSTM ($P, Q, \Omega$).
+   - **Simulación Monte Carlo Multivariada**: Proyección estocástica del valor de todo el portafolio mediante descomposición de Cholesky $\Sigma_{\text{LW}} = L L^T$.
 
-4. **Dinámica Analítica de Renta Fija (Bonds)**:
-   - Cálculo analítico de Duración de Macaulay, Duración Modificada ($D^*$), Convexidad ($C$) y DV01 ($ por bp).
-   - Simulación interactiva de Shocks de Rendimiento ($\Delta y \in [-200, +200]$ bps) comparando el precio exacto contra la aproximación de Taylor de primer orden (lineal) y segundo orden (convexidad).
+4. **Backtesting Histórico Walk-Forward & Underwater Plot**:
+   - Simulación histórica de la estrategia frente al Benchmark (`SPY` o 60/40).
+   - Métricas cuantitativas avanzadas: CAGR, Volatilidad anualizada, **Ratio de Sharpe**, **Ratio de Sortino** (penalización asimétrica de pérdidas) y **Ratio de Calmar** (velocidad de recuperación de drawdown).
+   - Gráfico interactivo **Underwater Drawdown** para evaluar la severidad de caídas históricas.
 
-5. **Señales Direccionales ML & Maduración de Posición**:
-   - **Diferenciación Fraccionaria ($d^*=0.40$)**: Conserva memoria de soporte/resistencia mientras elimina la no-estacionariedad.
-   - **Machine Learning**: Clasificador de bosque aleatorio (*Random Forest*) que proyecta señales direccionales (*LONG*, *SHORT*, *NEUTRAL*) con probabilidades calibradas.
-   - **Semivida de Ornstein-Uhlenbeck (Half-Life)**: Determina matemáticamente cuántos días de mercado esperar para que madure el trade o revierta al equilibrio.
-   - **Niveles Dinámicos de Salida**: Take-profit ($\pm 3\sigma$) y Stop-loss dinámico ($\pm 2\sigma$).
+5. **Stress-Testing de Crisis Macroeconómicas & Regímenes de Mercado (GMM)**:
+   - Simulación de impacto patrimonial (\$ USD) ante 4 eventos de cola sistémicos: *Subprime 2008*, *COVID-19 2020*, *FED Rate Hikes 2022* y *AI Tech Rally 2023–2024*.
+   - Auditoría desglosada activo por activo frente a una cartera 60/40.
+   - **Detección No Supervisada de Regímenes (Gaussian Mixture Models)**: Clasificación bayesiana en tiempo real de estados de mercado (*Bull*, *Lateral*, *Bear*) y recomendaciones dinámicas de ajuste de riesgo.
 
-6. **Laboratorio Didáctico de Modelos**:
-   - Fórmulas matemáticas en KaTeX y explicaciones pedagógicas de nivel posgrado de cada modelo implementado.
+6. **Dinámica Analítica de Renta Fija (Bonds)**:
+   - Incorporación directa de ETFs de renta fija cotizados en Yahoo Finance (`BND`, `TLT`, `SHY`, `AGG`, etc.).
+   - Duración Modificada Efectiva ($D^*$), Convexidad ($C$) y DV01.
+   - Simulación interactiva de Shocks de Rendimiento ($\Delta y \in [-400, +400]$ bps).
+
+7. **Señales Deep Learning & Maduración de Posición**:
+   - Red Neuronal Recurrente BiLSTM con Auto-Atención Temporal (PyTorch) entrenada sobre precios, retornos y memoria fraccionaria ($d^*=0.40$).
+   - Señales *LONG*, *SHORT*, *NEUTRAL*, Stop-Loss/Take-Profit dinámicos y semivida de Ornstein-Uhlenbeck.
+
+8. **Laboratorio Didáctico de Modelos**:
+   - 5 experimentos interactivos con fórmulas KaTeX y manipuladores en vivo (Ledoit-Wolf, Frontera Eficiente, Convexidad de Bonos, Memoria Fraccionaria, Procesos Monte Carlo).
 
 ---
 
@@ -99,7 +107,12 @@ quant_app/
     ├── __init__.py
     ├── data_loader.py          # Extractor de cotizaciones Yahoo Finance y spreads
     ├── risk_profiler.py        # Estimador psicométrico de aversión al riesgo gamma
-    ├── portfolio_optimizer.py  # Optimizador con Ledoit-Wolf, presupuesto y comisiones
+    ├── portfolio_optimizer.py  # Optimizador Markowitz con Ledoit-Wolf, presupuesto y comisiones
+    ├── hrp_optimizer.py        # Hierarchical Risk Parity (HRP) & Dendrograma Plotly
+    ├── backtester.py           # Backtesting walk-forward, Sortino, Calmar & Underwater plot
+    ├── black_litterman.py      # Black-Litterman impulsado por vistas de IA (BiLSTM)
+    ├── stress_testing.py       # Stress-testing de 4 crisis sistémicas y desglose USD
+    ├── market_regimes.py       # Regímenes de mercado GMM no supervisados (Bull/Lateral/Bear)
     ├── fixed_income.py         # Análisis de duración, convexidad y shocks de tasas
     ├── portfolio_monte_carlo.py# Simulación Monte Carlo multivariada de todo el portafolio (Cholesky)
     ├── deep_learning_model.py  # Red Neuronal BiLSTM con Atención Temporal (PyTorch)
