@@ -1199,21 +1199,54 @@ with tab_theory:
                 line=dict(color='#00E676', width=2, dash='dash')
             ))
             
-            # Punto de tangencia
+            # Punto de tangencia teórico
             fig_front.add_trace(go.Scatter(
                 x=[opt_vol], y=[opt_mu], mode='markers',
-                marker=dict(size=14, color='#FFD600', symbol='star'),
-                name='Punto Óptimo Tangente (Max U)'
+                marker=dict(size=12, color='#FFD600', symbol='star-open', line=dict(width=2)),
+                name=f'Tangencia Teórica (Max U, γ={gamma_sim})'
+            ))
+            
+            # Comparativa visual de los 3 paradigmas cuantitativos en el plano Riesgo-Retorno
+            hrp_vol = float(hrp_result['volatility'])
+            hrp_ret = float(hrp_result['expected_return'])
+            bl_w_vec = np.array([bl_result['weights'].get(a, 0.0) for a in opt_result['asset_names']])
+            bl_vol = float(np.sqrt(np.dot(bl_w_vec, np.dot(cov_ann, bl_w_vec))))
+            bl_ret = float(np.dot(bl_w_vec, [bl_result['mu_bl'].get(a, 0.05) for a in opt_result['asset_names']]))
+            
+            fig_front.add_trace(go.Scatter(
+                x=[opt_result['port_vol_lw']], y=[opt_result['port_ret_lw']], mode='markers+text',
+                text=["Markowitz"], textposition="bottom center",
+                marker=dict(size=11, color='#1E88E5', symbol='circle'),
+                name='Markowitz (Ledoit-Wolf)'
+            ))
+            fig_front.add_trace(go.Scatter(
+                x=[hrp_vol], y=[hrp_ret], mode='markers+text',
+                text=["HRP"], textposition="top left",
+                marker=dict(size=11, color='#00E676', symbol='diamond'),
+                name='HRP (Machine Learning)'
+            ))
+            fig_front.add_trace(go.Scatter(
+                x=[bl_vol], y=[bl_ret], mode='markers+text',
+                text=["Black-Litterman"], textposition="top right",
+                marker=dict(size=11, color='#AB47BC', symbol='square'),
+                name='Black-Litterman (IA)'
+            ))
+            
+            # Resaltar la cartera del modelo activo seleccionado en la Pestaña 2
+            fig_front.add_trace(go.Scatter(
+                x=[active_vol], y=[active_ret], mode='markers',
+                marker=dict(size=18, color='#FFD600', symbol='star', line=dict(width=2, color='white')),
+                name=f'⭐ MODELO ACTIVO: {active_model_desc}'
             ))
             
             fig_front.update_layout(
-                title=f"Tangencia de Utilidad Esperada sobre la Frontera Eficiente (γ = {gamma_sim})",
+                title=f"Frontera Eficiente, Curva de Indiferencia (γ={gamma_sim}) y Ubicación de los 3 Paradigmas",
                 xaxis_title="Riesgo Anual (Volatilidad σ)", yaxis_title="Retorno Esperado Anual (μ)",
                 xaxis=dict(tickformat=".1%"), yaxis=dict(tickformat=".1%"),
-                hovermode="closest", height=420, margin=dict(l=20, r=20, t=40, b=20)
+                hovermode="closest", height=440, margin=dict(l=20, r=20, t=40, b=20)
             )
             st.plotly_chart(fig_front, use_container_width=True)
-            st.caption("A mayor $\\gamma$ (mayor aversión al riesgo), la parábola verde se empina con fuerza, empujando la cartera óptima hacia la izquierda (menor volatilidad).")
+            st.caption(f"**Diagnóstico**: En la Pestaña 2 tienes activo el modelo **{active_model_desc}** (estrella dorada ⭐). Observa cómo Markowitz se optimiza para la tangencia, HRP busca la mínima varianza estructural sin invertir covarianzas, y Black-Litterman ajusta los retornos según las convicciones de la Red Neuronal BiLSTM.")
 
     # -------------------------------------------------------------
     # SUBTAB 3: RENTA FIJA & ERROR RESIDUAL DE TAYLOR
@@ -1355,15 +1388,16 @@ with tab_theory:
                                      help="1.0 = Volatilidad histórica normal. > 1.0 = Simulación de estrés de mercado (Stress-testing).")
                 rf_lab = st.number_input("Tasa Libre de Riesgo (%):", value=3.5, step=0.25, key="num_mc_rf_lab") / 100.0
                 
-                # Ejecutar simulación con matriz escalada por estrés
+                # Ejecutar simulación con matriz escalada por estrés usando la cartera activa
+                st.info(f"📊 Evaluando Cartera: **{active_model_desc}**")
                 stressed_cov = opt_result['cov_lw'] * (vol_mult ** 2)
                 res_mc_lab = simulate_multivariate_portfolio_mc(
-                    shares_dict=opt_result['shares'].to_dict(),
+                    shares_dict=active_shares,
                     latest_prices=latest_prices,
                     annual_returns=returns_df.mean().values * 252,
                     cov_matrix=stressed_cov,
                     initial_budget=budget,
-                    cash_buffer=opt_result['cash_remaining'],
+                    cash_buffer=active_cash,
                     asset_names=opt_result['asset_names'],
                     time_horizon_days=mc_horiz_lab,
                     n_simulations=mc_nsim_lab,
