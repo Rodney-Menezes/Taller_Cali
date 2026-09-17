@@ -658,8 +658,7 @@ with tab_backtest:
         st.plotly_chart(bt_res['fig_underwater'], use_container_width=True)
         
         st.markdown("""
-        > [!NOTE]
-        > **Fundamento Metodológico**:
+        > 📌 **Fundamento Metodológico**:
         > - **Ratio de Sortino**: Mientras el Sharpe tradicional penaliza tanto las subidas como las bajadas, el Sortino penaliza exclusivamente la varianza perjudicial ($r_t < 0$). Un Sortino superior al Sharpe refleja asimetría positiva en las ganancias.
         > - **Ratio de Calmar**: Mide la velocidad de recuperación patrimonial frente a la peor caída sufrida en el período. Ratios superiores a 1.0 son el estándar de excelencia en fondos cuantitativos.
         """)
@@ -817,8 +816,7 @@ with tab_bonds:
     st.plotly_chart(fig_bond, use_container_width=True)
     
     st.markdown("""
-    > [!NOTE]
-    > **Interpretación Cuantitativa**: La recta roja (duración lineal) subestima el precio cuando las tasas bajan y sobreestima la caída cuando las tasas suben. La **convexidad** (curvatura verde/azul) es una propiedad favorable: amortigua las pérdidas cuando las tasas suben y amplifica las ganancias cuando las tasas bajan.
+    > 💡 **Interpretación Cuantitativa**: La recta roja (duración lineal) subestima el precio cuando las tasas bajan y sobreestima la caída cuando las tasas suben. La **convexidad** (curvatura verde/azul) es una propiedad favorable: amortigua las pérdidas cuando las tasas suben y amplifica las ganancias cuando las tasas bajan.
     """)
 
 # =============================================================
@@ -1021,8 +1019,7 @@ with tab_signals:
     st.plotly_chart(fig_mat, use_container_width=True)
             
     st.markdown("""
-    > [!TIP]
-    > **Gestión de Riesgo Dinámica**: 
+    > 🛡️ **Gestión de Riesgo Dinámica**: 
     > - **Take-Profit Sugerido**: Proyectado a $+3\\sigma_{\\text{diaria}}$ para operaciones en largo y $-3\\sigma$ para corto.
     > - **Stop-Loss Dinámico**: Nivel de corte fijado a $2\\sigma_{\\text{diaria}}$ para proteger el capital contra rupturas adversas de volatilidad.
     """)
