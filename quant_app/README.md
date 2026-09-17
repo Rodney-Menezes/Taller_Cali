@@ -101,5 +101,16 @@ quant_app/
     ├── risk_profiler.py        # Estimador psicométrico de aversión al riesgo gamma
     ├── portfolio_optimizer.py  # Optimizador con Ledoit-Wolf, presupuesto y comisiones
     ├── fixed_income.py         # Análisis de duración, convexidad y shocks de tasas
+    ├── portfolio_monte_carlo.py# Simulación Monte Carlo multivariada de todo el portafolio (Cholesky)
+    ├── deep_learning_model.py  # Red Neuronal BiLSTM con Atención Temporal (PyTorch)
     └── timing_signals.py       # Señales de ML fraccionario y maduración Ornstein-Uhlenbeck
 ```
+
+---
+
+## 🏛️ Afiliación Institucional & Licencia de Propiedad Intelectual
+
+* **Institución Académica**: Desarrollado para el **Taller de Finanzas Cuantitativas** en la **Pontificia Universidad Javeriana de Cali - Colombia**.
+* **Autoría & Propiedad Intelectual**: Todos los derechos reservados &copy; 2026 **Rodney Menezes**.
+* **Aviso Legal**: El diseño conceptual, arquitectura cuantitativa, algoritmos econométricos, modelos de Deep Learning e implementaciones de código de esta plataforma son propiedad intelectual de Rodney Menezes. Su uso está destinado a propósitos educativos y de investigación para la Pontificia Universidad Javeriana de Cali. Queda prohibida su copia, distribución o comercialización sin autorización expresa por escrito.
+

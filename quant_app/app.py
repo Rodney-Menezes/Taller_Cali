@@ -153,7 +153,7 @@ with st.sidebar:
 
 # Header Principal
 st.markdown('<div class="main-title">📈 AI Quantitative Investment & Portfolio Platform</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Motor institucional de asignación de capital con regularización de Ledoit-Wolf, dinámica de renta fija y señales ML/DL</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Motor institucional de asignación de capital con regularización de Ledoit-Wolf, dinámica de renta fija y señales ML/DL &bull; Pontificia Universidad Javeriana de Cali - Colombia</div>', unsafe_allow_html=True)
 
 # -------------------------------------------------------------
 # CARGA DE DATOS DESDE YAHOO FINANCE
@@ -1232,12 +1232,23 @@ with tab_theory:
                 st.plotly_chart(fig_ou, use_container_width=True)
                 st.info("Las posiciones cuantitativas de arbitraje o reversión deben cerrarse cerca de la **semivida $t_{1/2}$**, evitando dejar capital inmovilizado cuando la velocidad de convergencia se ralentiza asintóticamente.")
 
-# Footer institucional
+# Footer institucional y propiedad intelectual
 st.markdown("---")
 st.markdown(
-    "<div style='text-align: center; color: #757575; font-size: 0.85rem;'>"
-    "AI Quantitative Investment Platform &bull; Desarrollado para Taller de Finanzas Cuantitativas &bull; "
-    "Datos provistos vía Yahoo Finance API &bull; Modelos ejecutados en PyTorch / Scikit-Learn"
-    "</div>",
+    """
+    <div style='text-align: center; color: #9E9E9E; font-size: 0.88rem; line-height: 1.6; padding: 12px 0;'>
+        <div>
+            <strong>AI Quantitative Investment Platform</strong> &bull; 
+            Desarrollado para el <strong>Taller de Finanzas Cuantitativas</strong> en la <strong>Pontificia Universidad Javeriana de Cali - Colombia</strong> &bull; 
+            Datos provistos vía <strong>Yahoo Finance API</strong> &bull; 
+            Modelos ejecutados en <strong>PyTorch / Scikit-Learn</strong>
+        </div>
+        <div style='font-size: 0.80rem; color: #78909C; margin-top: 8px; border-top: 1px solid #2D3748; padding-top: 8px;'>
+            ⚖️ <strong>Aviso de Licencia de Propiedad Intelectual</strong>: Todos los derechos reservados &copy; 2026 <strong>Rodney Menezes</strong>. 
+            El diseño metodológico, algoritmos cuantitativos, modelos econométricos, arquitecturas de Deep Learning (BiLSTM con Atención) e implementaciones de código de esta plataforma 
+            son propiedad intelectual de <strong>Rodney Menezes</strong>. Desarrollado con fines académicos y didácticos para la <strong>Pontificia Universidad Javeriana de Cali - Colombia</strong>. Queda prohibida su reproducción total o parcial, distribución o explotación comercial no autorizada sin consentimiento expreso por escrito.
+        </div>
+    </div>
+    """,
     unsafe_allow_html=True
 )
