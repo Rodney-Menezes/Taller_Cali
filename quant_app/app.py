@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+from scipy.optimize import minimize
 
 # Importación de módulos cuantitativos locales
 from modules.data_loader import get_asset_data
@@ -436,58 +437,375 @@ with tab_signals:
     """)
 
 # =============================================================
-# TAB 5: LABORATORIO DIDÁCTICO DE MODELOS
+# TAB 5: LABORATORIO DIDÁCTICO & SIMULACIÓN INTERACTIVA DE MODELOS
 # =============================================================
 with tab_theory:
-    st.subheader("Fundamentos Matemáticos & Algorítmicos del Taller Cuantitativo")
-    st.markdown("""
-    Esta plataforma materializa las metodologías más avanzadas de la literatura de finanzas cuantitativas moderna:
-    """)
+    st.subheader("🧪 Laboratorio Cuantitativo Interactivo: Simulación & Gráficos de Modelos")
+    st.write("Experimente interactivamente con las matemáticas y dinámicas estocásticas de cada modelo en tiempo real. Modifique parámetros y observe la respuesta inmediata de los algoritmos y sus representaciones visuales.")
     
-    th_col1, th_col2 = st.columns(2)
+    subtab1, subtab2, subtab3, subtab4, subtab5 = st.tabs([
+        "🔬 1. Ledoit-Wolf & Autovalores",
+        "📈 2. Frontera & Curvas de Indiferencia",
+        "📉 3. Renta Fija & Error Residual de Taylor",
+        "🧬 4. Diferenciación Fraccionaria",
+        "🔄 5. Simulación Monte Carlo Ornstein-Uhlenbeck"
+    ])
     
-    with th_col1:
-        st.markdown("""
-        ### 1. Maximización de Utilidad Esperada Cuadrática
-        Para un inversor con coeficiente de aversión al riesgo de Arrow-Pratt $\\gamma$, la función de utilidad a maximizar es:
-        $$\\max_{w} \\quad w^T \\mu - \\frac{\\gamma}{2} w^T \\Sigma_{\\text{LW}} w - \\sum_{i=1}^N \\left( c_{\\text{broker}} |w_i - w_{0,i}| + \\frac{\\text{Spread}_i}{2} |w_i| \\right)$$
-        Sujeto a:
-        $$\\sum_{i=1}^N w_i \\le 1, \\quad w_i \\ge 0 \\quad (\\text{o } w_i \\ge -0.20 \\text{ si Short})$$
-        * **$w^T \\mu$**: Retorno esperado de la cartera.
-        * **$\\frac{\\gamma}{2} w^T \\Sigma w$**: Penalización por riesgo cuadrático ponderado por la aversión psicológica del usuario.
-        * **Fricciones de Mercado**: Cada rebalanceo incurre en tarifas de corretaje ($c_{\\text{broker}}$) y cruce de horquilla bid-ask (spread).
-        """)
+    # -------------------------------------------------------------
+    # SUBTAB 1: LEDOIT-WOLF & MARCHENKO-PASTUR
+    # -------------------------------------------------------------
+    with subtab1:
+        st.markdown("### 🔬 Regularización de Covarianza & Filtrado de Ruido (Random Matrix Theory)")
+        st.latex(r"\Sigma_{\text{LW}} = \delta^* F + (1 - \delta^*) S, \quad \lambda_{\pm} = \sigma^2 \left(1 \pm \sqrt{\frac{N}{T}}\right)^2")
+        st.write("La covarianza muestral $S$ sobreestima los autovalores mayores y genera inestabilidad numérica. Ledoit-Wolf contrae la matriz hacia un target estructurado $F$, reduciendo el número de condición.")
         
-        st.markdown("""
-        ### 2. Regularización de Covarianza (Ledoit & Wolf, 2004)
-        La covarianza muestral clásica $S = \\frac{1}{T} X^T X$ sobreestima los autovalores más grandes y subestima los pequeños cuando la relación activos/observaciones $N/T$ es alta, creando carteras espurias hiperconcentradas.
+        lw_res = ledoit_wolf_covariance(returns_df)
+        S_mat = lw_res['sample_cov']
+        LW_mat = lw_res['shrunk_cov']
+        delta_opt = float(lw_res['shrinkage_intensity'])
         
-        El estimador encogido (shrinkage) interpola óptimamente:
-        $$\\Sigma_{\\text{LW}} = \\delta^* F + (1 - \\delta^*) S$$
-        Donde $F$ es una matriz de correlación equitativa bien condicionada y $\\delta^* \\in [0, 1]$ minimiza asintóticamente la pérdida cuadrática de Frobenius.
-        """)
+        col_lw1, col_lw2 = st.columns([1, 2])
+        with col_lw1:
+            st.markdown("#### Parámetros del Estimador")
+            user_delta = st.slider(
+                "Intensidad de Contracción (δ):",
+                min_value=0.0, max_value=1.0, value=float(np.round(delta_opt, 3)), step=0.01,
+                help="δ = 0 es Covarianza Muestral pura (ruidosa). δ = 1 es el Target estructurado F."
+            )
+            st.metric("Contracción Óptima Asintótica (δ*)", f"{delta_opt:.4f}")
+            
+            # Construir Target F con correlación equitativa
+            n_dim = len(S_mat)
+            corr_sum = 0.0
+            pair_count = 0
+            for i in range(n_dim):
+                for j in range(i+1, n_dim):
+                    corr_sum += S_mat[i, j] / np.sqrt(S_mat[i, i] * S_mat[j, j])
+                    pair_count += 1
+            mean_corr = corr_sum / max(1, pair_count)
+            
+            F_mat = np.zeros_like(S_mat)
+            for i in range(n_dim):
+                for j in range(n_dim):
+                    if i == j:
+                        F_mat[i, j] = S_mat[i, i]
+                    else:
+                        F_mat[i, j] = mean_corr * np.sqrt(S_mat[i, i] * S_mat[j, j])
+                        
+            Sigma_user = (1.0 - user_delta) * S_mat + user_delta * F_mat
+            
+            evals_sample = np.sort(np.linalg.eigvalsh(S_mat))[::-1]
+            evals_user = np.sort(np.linalg.eigvalsh(Sigma_user))[::-1]
+            
+            cond_sample = float(evals_sample[0] / (evals_sample[-1] + 1e-8))
+            cond_user = float(evals_user[0] / (evals_user[-1] + 1e-8))
+            
+            st.metric("Número de Condición κ(S) [Muestral]", f"{cond_sample:.1f}")
+            st.metric("Número de Condición κ(Σ) [Regularizado]", f"{cond_user:.1f}", 
+                      delta=f"{cond_user - cond_sample:.1f}", delta_color="inverse")
+            st.caption("Un menor número de condición κ evita ponderaciones numéricamente inestables e hipertrofiadas.")
+            
+        with col_lw2:
+            T_obs, N_dim = returns_df.shape
+            q_ratio = T_obs / N_dim
+            sigma2 = np.trace(S_mat) / N_dim
+            lambda_plus = float(sigma2 * (1.0 + np.sqrt(1.0 / q_ratio)) ** 2)
+            
+            df_evals = pd.DataFrame({
+                "Autovalor": [f"λ_{i+1}" for i in range(len(evals_sample))],
+                "Covarianza Muestral S": evals_sample,
+                f"Contracción δ={user_delta:.2f}": evals_user
+            })
+            
+            fig_eval = go.Figure()
+            fig_eval.add_trace(go.Bar(
+                x=df_evals["Autovalor"], y=df_evals["Covarianza Muestral S"],
+                name="Covarianza Muestral S (Sin regularizar)", marker_color="#FF5252"
+            ))
+            fig_eval.add_trace(go.Bar(
+                x=df_evals["Autovalor"], y=df_evals[f"Contracción δ={user_delta:.2f}"],
+                name=f"Regularizada (δ = {user_delta:.2f})", marker_color="#00E676"
+            ))
+            fig_eval.add_hline(
+                y=lambda_plus, line_dash="dash", line_color="#FFD600",
+                annotation_text=f"Límite de Ruido Marchenko-Pastur λ+ ({lambda_plus:.3f})",
+                annotation_position="top right"
+            )
+            fig_eval.update_layout(
+                title="Espectro de Autovalores vs. Umbral de Ruido de Marchenko-Pastur",
+                xaxis_title="Modo Propio (Eigenmode)", yaxis_title="Varianza Explicada (Autovalor)",
+                barmode="group", height=380, margin=dict(l=20, r=20, t=40, b=20)
+            )
+            st.plotly_chart(fig_eval, use_container_width=True)
+            st.info("La línea amarilla marca el umbral superior de ruido $\\lambda_+$ según la Teoría de Matrices Aleatorias. Ledoit-Wolf contrae los autovalores ruidosos hacia el valor medio, eliminando el sobreajuste empírico.")
 
-    with th_col2:
-        st.markdown("""
-        ### 3. Expansión de Taylor en Renta Fija (Duración & Convexidad)
-        El precio de un bono cupón con rendimiento $y$ es $P(y) = \\sum_{t=1}^T \\frac{C_t}{(1+y)^t}$.
-        Aproximando por Serie de Taylor hasta segundo orden:
-        $$\\frac{\\Delta P}{P} \\approx -D^* \\Delta y + \\frac{1}{2} C (\\Delta y)^2$$
-        * **Duración Modificada ($D^*$):** Primera derivada normalizada $-\\frac{1}{P} \\frac{dP}{dy}$. Sensibilidad lineal.
-        * **Convexidad ($C$):** Segunda derivada normalizada $\\frac{1}{P} \\frac{d^2P}{dy^2}$. Captura la curvatura que siempre favorece al bonista.
-        * **DV01:** Cambio monetario absoluto por 1 punto básico de movimiento en tasas ($D^* \\cdot P \\cdot 0.0001$).
-        """)
+    # -------------------------------------------------------------
+    # SUBTAB 2: FRONTERA EFICIENTE & CURVAS DE INDIFERENCIA
+    # -------------------------------------------------------------
+    with subtab2:
+        st.markdown("### 📈 Superficie de Utilidad & Curvas de Indiferencia de Arrow-Pratt")
+        st.latex(r"U(w) = w^T \mu - \frac{\gamma}{2} w^T \Sigma w \implies \mu = U + \frac{\gamma}{2} \sigma^2")
+        st.write("Visualice cómo interactúa la función de utilidad cuadrática con la Frontera Eficiente de Markowitz, y cómo varía el punto de tangencia óptimo al modular la aversión al riesgo $\\gamma$.")
         
-        st.markdown("""
-        ### 4. Diferenciación Fraccionaria & Ornstein-Uhlenbeck
-        * **Memoria Fraccionaria (López de Prado):**
-        $$(1 - B)^d = \\sum_{k=0}^{\\infty} (-1)^k \\binom{d}{k} B^k$$
-        Con $d=0.40$, logramos que la serie sea estacionaria para algoritmos de ML mientras retenemos la memoria histórica de niveles de soporte y resistencia.
-        * **Semivida (Half-Life) de Maduración:**
-        Modelamos la reversión del spread mediante:
-        $$dy_t = \\lambda (\\mu - y_t) dt + \\sigma dW_t$$
-        El tiempo esperado de maduración o retorno al equilibrio es $t_{1/2} = \\frac{\\ln(2)}{\\lambda}$, dictando el número de días óptimo para mantener abierta la posición.
-        """)
+        col_fr1, col_fr2 = st.columns([1, 2.2])
+        with col_fr1:
+            gamma_sim = st.slider("Aversión al Riesgo (γ):", min_value=0.5, max_value=12.0, value=float(gamma_val), step=0.5, key="sld_gamma_lab")
+            ann_mu = returns_df.mean().values * 252
+            cov_ann = LW_mat
+            n_assets = len(ann_mu)
+            
+            # Generar puntos de la frontera
+            target_returns = np.linspace(min(ann_mu)*0.85, max(ann_mu)*1.05, 25)
+            front_vols = []
+            front_rets = []
+            
+            for r_target in target_returns:
+                cons = [
+                    {'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0},
+                    {'type': 'eq', 'fun': lambda w, r=r_target: np.dot(w, ann_mu) - r}
+                ]
+                bnds = [(0.0, 1.0) for _ in range(n_assets)]
+                res = minimize(lambda w: np.dot(w.T, np.dot(cov_ann, w)), np.ones(n_assets)/n_assets,
+                               method='SLSQP', bounds=bnds, constraints=cons)
+                if res.success:
+                    front_vols.append(float(np.sqrt(res.fun)))
+                    front_rets.append(float(r_target))
+                    
+            # Punto óptimo de utilidad para gamma_sim
+            cons_u = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0}]
+            bnds_u = [(0.0, 1.0) for _ in range(n_assets)]
+            res_u = minimize(lambda w: -(np.dot(w, ann_mu) - 0.5 * gamma_sim * np.dot(w.T, np.dot(cov_ann, w))),
+                             np.ones(n_assets)/n_assets, method='SLSQP', bounds=bnds_u, constraints=cons_u)
+            w_star = res_u.x
+            opt_mu = float(np.dot(w_star, ann_mu))
+            opt_vol = float(np.sqrt(np.dot(w_star.T, np.dot(cov_ann, w_star))))
+            opt_u = opt_mu - 0.5 * gamma_sim * (opt_vol ** 2)
+            
+            st.metric("Retorno Óptimo (μ*)", f"{opt_mu*100:.2f}%")
+            st.metric("Volatilidad Óptima (σ*)", f"{opt_vol*100:.2f}%")
+            st.metric("Utilidad Cuadrática Máxima", f"{opt_u:.4f}")
+            
+        with col_fr2:
+            fig_front = go.Figure()
+            if front_vols:
+                fig_front.add_trace(go.Scatter(
+                    x=front_vols, y=front_rets, mode='lines', name='Frontera Eficiente (Markowitz + Ledoit-Wolf)',
+                    line=dict(color='#1E88E5', width=3)
+                ))
+            
+            # Activos individuales
+            asset_vols = [float(np.sqrt(cov_ann[i, i])) for i in range(n_assets)]
+            fig_front.add_trace(go.Scatter(
+                x=asset_vols, y=ann_mu, mode='markers+text',
+                text=list(returns_df.columns), textposition='top right',
+                marker=dict(size=10, color='#FF9100'), name='Activos Individuales'
+            ))
+            
+            # Curva de indiferencia tangente: mu = U + (gamma / 2) * sigma^2
+            min_v = min(front_vols) if front_vols else 0.05
+            max_v = max(front_vols) if front_vols else 0.40
+            sigma_grid = np.linspace(min_v * 0.7, max_v * 1.25, 50)
+            indifference_mu = opt_u + 0.5 * gamma_sim * (sigma_grid ** 2)
+            fig_front.add_trace(go.Scatter(
+                x=sigma_grid, y=indifference_mu, mode='lines', name=f'Curva de Indiferencia (γ={gamma_sim})',
+                line=dict(color='#00E676', width=2, dash='dash')
+            ))
+            
+            # Punto de tangencia
+            fig_front.add_trace(go.Scatter(
+                x=[opt_vol], y=[opt_mu], mode='markers',
+                marker=dict(size=14, color='#FFD600', symbol='star'),
+                name='Punto Óptimo Tangente (Max U)'
+            ))
+            
+            fig_front.update_layout(
+                title=f"Tangencia de Utilidad Esperada sobre la Frontera Eficiente (γ = {gamma_sim})",
+                xaxis_title="Riesgo Anual (Volatilidad σ)", yaxis_title="Retorno Esperado Anual (μ)",
+                xaxis=dict(tickformat=".1%"), yaxis=dict(tickformat=".1%"),
+                hovermode="closest", height=420, margin=dict(l=20, r=20, t=40, b=20)
+            )
+            st.plotly_chart(fig_front, use_container_width=True)
+            st.caption("A mayor $\\gamma$ (mayor aversión al riesgo), la parábola verde se empina con fuerza, empujando la cartera óptima hacia la izquierda (menor volatilidad).")
+
+    # -------------------------------------------------------------
+    # SUBTAB 3: RENTA FIJA & ERROR RESIDUAL DE TAYLOR
+    # -------------------------------------------------------------
+    with subtab3:
+        st.markdown("### 📉 Renta Fija: Análisis de Sensibilidad y Error de Taylor")
+        st.latex(r"\frac{\Delta P}{P} = -D^* \Delta y + \frac{1}{2} C (\Delta y)^2 + \mathcal{O}((\Delta y)^3)")
+        st.write("Cuantificación del error de aproximación en función de la magnitud del shock de rendimiento $\\Delta y$. Demuestra por qué la duración por sí sola falla en shocks severos.")
+        
+        col_tay1, col_tay2 = st.columns([1, 2])
+        with col_tay1:
+            mat_lab = st.slider("Maduración del Bono (Años):", 1, 30, 15, key="sld_mat_lab")
+            c_lab = st.slider("Tasa Cupón (%):", 1.0, 12.0, 5.0, key="sld_c_lab") / 100.0
+            ytm_lab = st.slider("Rendimiento Inicial (YTM %):", 1.0, 12.0, 4.5, key="sld_ytm_lab") / 100.0
+            shock_max = st.slider("Shock Máximo Simulado (bps):", 100, 500, 300, step=50, key="sld_shk_lab")
+            
+            b_met = calculate_bond_metrics(1000.0, c_lab, ytm_lab, mat_lab, 2)
+            st.metric("Duración Modificada (D*)", f"{b_met['mod_duration']:.2f} años")
+            st.metric("Convexidad (C)", f"{b_met['convexity']:.2f}")
+            st.metric("DV01 (Shock 1 bp)", f"${b_met['dv01']:.4f}")
+            
+        with col_tay2:
+            df_sh = simulate_yield_shocks(b_met, shock_bps_range=shock_max, n_points=60)
+            error_lineal = np.abs(df_sh['Aprox_Duracion_Lineal'] - df_sh['Precio_Exacto'])
+            error_taylor2 = np.abs(df_sh['Aprox_Duracion_Convexidad'] - df_sh['Precio_Exacto'])
+            
+            fig_err = go.Figure()
+            fig_err.add_trace(go.Scatter(
+                x=df_sh['Shock_bps'], y=error_lineal,
+                mode='lines', name='Error Absoluto: Sólo Duración (Lineal)',
+                line=dict(color='#FF5252', width=2.5)
+            ))
+            fig_err.add_trace(go.Scatter(
+                x=df_sh['Shock_bps'], y=error_taylor2,
+                mode='lines', name='Error Absoluto: Duración + Convexidad (Taylor 2°)',
+                line=dict(color='#00E676', width=2.5)
+            ))
+            fig_err.update_layout(
+                title=f"Error Residual de Aproximación ante Shocks en Tasas (Vencimiento = {mat_lab} años)",
+                xaxis_title="Shock de Rendimiento Δy (Puntos Básicos)",
+                yaxis_title="Error Residual Absoluto en Precio ($ USD)",
+                height=380, margin=dict(l=20, r=20, t=40, b=20),
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_err, use_container_width=True)
+            max_err_lin = float(error_lineal.max())
+            max_err_tay = float(error_taylor2.max())
+            pct_reduc = (1.0 - max_err_tay / (max_err_lin + 1e-6)) * 100
+            st.info(f"Para un shock de ±{shock_max} bps, el error de aproximación lineal alcanza **${max_err_lin:.2f} USD** por bono de $1,000, mientras que al incorporar la **convexidad** el error se reduce a apenas **${max_err_tay:.2f} USD** (reducción del {pct_reduc:.1f}% del error).")
+
+    # -------------------------------------------------------------
+    # SUBTAB 4: DIFERENCIACIÓN FRACCIONARIA
+    # -------------------------------------------------------------
+    with subtab4:
+        st.markdown("### 🧬 Conservación de Memoria Histórica vs. Estacionariedad (López de Prado)")
+        st.latex(r"(1 - L)^d = \sum_{k=0}^{\infty} (-1)^k \binom{d}{k} L^k")
+        st.write("La diferenciación entera tradicional ($d=1$) destruye la memoria predictiva de niveles de soporte y resistencia. La diferenciación fraccionaria halla el orden mínimo $d^*$ que garantiza estacionariedad conservando la mayor memoria.")
+        
+        col_fd1, col_fd2 = st.columns([1, 2])
+        with col_fd1:
+            asset_fd = st.selectbox("Activo a Analizar:", selected_tickers, key="sb_asset_fd_lab")
+            d_slider = st.slider("Orden de Diferenciación Fraccionaria (d):", 0.0, 1.0, 0.40, 0.05, key="sld_d_lab")
+            
+            p_raw = prices_df[asset_fd].dropna()
+            log_p = np.log(p_raw)
+            
+            d_grid = np.linspace(0.0, 1.0, 11)
+            corrs = []
+            vol_ratios = []
+            
+            for d_val in d_grid:
+                if d_val == 0.0:
+                    fd_s = log_p
+                else:
+                    fd_s = apply_frac_diff(log_p, d=d_val)
+                common = log_p.index.intersection(fd_s.index)
+                corr = float(np.corrcoef(log_p.loc[common].values, fd_s.loc[common].values)[0, 1])
+                corrs.append(corr)
+                vol_ratios.append(float(fd_s.std() / (log_p.std() + 1e-6)))
+                
+            idx_curr = int(np.round(d_slider * 10))
+            st.metric("Memoria Preservada (Correlación)", f"{corrs[idx_curr]*100:.1f}%")
+            st.caption("Con d=0.40 se retiene más del 80% de la correlación con la serie de precios original.")
+            
+        with col_fd2:
+            fig_mem = go.Figure()
+            fig_mem.add_trace(go.Scatter(
+                x=d_grid, y=corrs, mode='lines+markers', name='Memoria Conservada (Correlación con Precio)',
+                line=dict(color='#1E88E5', width=3)
+            ))
+            fig_mem.add_trace(go.Scatter(
+                x=d_grid, y=vol_ratios, mode='lines+markers', name='Volatilidad Normalizada (Dispersión Residual)',
+                line=dict(color='#FF5252', width=2, dash='dot')
+            ))
+            
+            fig_mem.add_vrect(
+                x0=0.35, x1=0.45, fillcolor="green", opacity=0.2,
+                annotation_text="Zona Óptima d* (0.35 - 0.45)", annotation_position="top left"
+            )
+            fig_mem.add_vline(x=d_slider, line_dash="dash", line_color="#FFD600",
+                              annotation_text=f"d={d_slider}")
+                              
+            fig_mem.update_layout(
+                title=f"Curva de Información Fraccionaria de López de Prado ({asset_fd})",
+                xaxis_title="Orden de Diferenciación (d)", yaxis_title="Métrica Normalizada [0, 1]",
+                height=380, margin=dict(l=20, r=20, t=40, b=20),
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_mem, use_container_width=True)
+            st.info("A $d=1.0$ (diferenciación entera tradicional), la memoria cae por debajo del 15%, transformando la serie en ruido blanco. A $d=0.40$, logramos estacionariedad mientras mantenemos los canales estructurales y soportes históricos.")
+
+    # -------------------------------------------------------------
+    # SUBTAB 5: SIMULACIÓN ORNSTEIN-UHLENBECK
+    # -------------------------------------------------------------
+    with subtab5:
+        st.markdown("### 🔄 Proceso de Difusión de Ornstein-Uhlenbeck & Semivida de Maduración")
+        st.latex(r"dy_t = \theta (\mu - y_t) dt + \sigma dW_t, \quad t_{1/2} = \frac{\ln(2)}{\theta}")
+        st.write("Simulación estocástica de trayectorias de precios y spreads que experimentan reversión a la media. Permite determinar científicamente la duración óptima de un trade antes de su decaimiento.")
+        
+        col_ou1, col_ou2 = st.columns([1, 2])
+        with col_ou1:
+            st.markdown("#### Parámetros Estocásticos")
+            theta_sim = st.slider("Velocidad de Reversión (θ):", 0.5, 15.0, 4.0, 0.5, key="sld_th_ou")
+            mu_sim = st.slider("Nivel de Equilibrio (μ $):", 50.0, 200.0, 100.0, 5.0, key="sld_mu_ou")
+            y0_sim = st.slider("Precio Inicial Desviado (y0 $):", 50.0, 200.0, 125.0, 5.0, key="sld_y0_ou")
+            sigma_sim = st.slider("Volatilidad de Difusión (σ):", 5.0, 50.0, 15.0, 2.5, key="sld_sig_ou")
+            n_paths = st.slider("Número de Trayectorias Monte Carlo:", 5, 30, 12, key="sld_np_ou")
+            n_days = st.slider("Horizonte de Simulación (Días):", 15, 90, 45, key="sld_nd_ou")
+            
+            dt_day = 1.0 / 252.0
+            half_life_days = np.log(2.0) / (theta_sim * dt_day)
+            half_life_days = float(np.clip(half_life_days, 1.0, n_days))
+            
+            st.metric("Semivida Analítica (t₁/₂)", f"{half_life_days:.1f} días de mercado")
+            st.caption("Tiempo estadístico esperado para que el 50% de la desviación (|y0 - μ|) sea absorbida.")
+            
+        with col_ou2:
+            np.random.seed(42)
+            dt = 1.0 / 252.0
+            paths = np.zeros((n_days, n_paths))
+            paths[0] = y0_sim
+            
+            for t in range(1, n_days):
+                dW = np.random.normal(0, np.sqrt(dt), n_paths)
+                paths[t] = paths[t-1] + theta_sim * (mu_sim - paths[t-1]) * dt + sigma_sim * dW
+                
+            fig_ou = go.Figure()
+            days_x = np.arange(n_days)
+            for p in range(n_paths):
+                fig_ou.add_trace(go.Scatter(
+                    x=days_x, y=paths[:, p], mode='lines',
+                    line=dict(width=1), opacity=0.4, showlegend=False
+                ))
+                
+            mean_path = np.mean(paths, axis=1)
+            fig_ou.add_trace(go.Scatter(
+                x=days_x, y=mean_path, mode='lines', name='Trayectoria Media Simulada',
+                line=dict(color='#00E676', width=3)
+            ))
+            
+            fig_ou.add_hline(
+                y=mu_sim, line_dash="dash", line_color="#FFD600",
+                annotation_text=f"Equilibrio a Largo Plazo μ (${mu_sim:.1f})",
+                annotation_position="top right"
+            )
+            
+            if half_life_days <= n_days:
+                fig_ou.add_vline(
+                    x=half_life_days, line_dash="dot", line_color="#FF5252",
+                    annotation_text=f"Maduración t₁/₂ ({half_life_days:.1f}d)",
+                    annotation_position="bottom right"
+                )
+                
+            fig_ou.update_layout(
+                title="Simulación Monte Carlo de Reversión a la Media (Proceso O-U)",
+                xaxis_title="Días de Mercado Transcurridos", yaxis_title="Precio del Activo ($ USD)",
+                height=380, margin=dict(l=20, r=20, t=40, b=20)
+            )
+            st.plotly_chart(fig_ou, use_container_width=True)
+            st.info("Las posiciones cuantitativas de arbitraje o reversión deben cerrarse cerca de la **semivida $t_{1/2}$**, evitando dejar capital inmovilizado cuando la velocidad de convergencia se ralentiza asintóticamente.")
 
 # Footer institucional
 st.markdown("---")
