@@ -10,7 +10,7 @@ from scipy.optimize import minimize
 from modules.data_loader import get_asset_data
 from modules.risk_profiler import calculate_risk_aversion
 from modules.portfolio_optimizer import optimize_portfolio_utility, ledoit_wolf_covariance
-from modules.fixed_income import calculate_bond_metrics, simulate_yield_shocks
+from modules.fixed_income import calculate_bond_metrics, simulate_yield_shocks, get_fixed_income_profile
 from modules.timing_signals import generate_timing_recommendations, apply_frac_diff
 from modules.portfolio_monte_carlo import simulate_multivariate_portfolio_mc
 from modules.deep_learning_model import train_deep_learning_agent
@@ -74,24 +74,72 @@ st.markdown("""
 # BARRA LATERAL (SIDEBAR): Configuración de Cartera y Mercado
 # -------------------------------------------------------------
 with st.sidebar:
-    st.markdown("### ⚙️ Parámetros del Inversor")
+    st.markdown("### ⚙️ Universo de Inversión & Parámetros")
     
-    # 1. Selección de Activos (Yahoo Finance)
-    selected_tickers = st.multiselect(
-        "Activos en Renta Variable / ETFs:",
-        options=["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "TLT", "SPY", "QQQ", "GLD", "BND"],
-        default=["AAPL", "MSFT", "NVDA", "GOOGL", "TLT"]
+    # 1. Renta Variable, Commodities y Mid/Small-Caps
+    st.markdown("#### 📈 1. Renta Variable & Multiactivo")
+    all_equity_options = [
+        # Small / Mid-Caps (Menor liquidez relativa, mayor dispersión)
+        "IWM", "IJH", "VB",
+        # Mercados Emergentes & Internacionales
+        "EEM", "EWZ", "EWW", "INDA", "EFA",
+        # Sectores & Real Estate (REITs)
+        "VNQ", "XLE", "XLV", "XLU", "XLI",
+        # Materias Primas / Commodities
+        "GLD", "SLV", "USO", "DBA", "CPER",
+        # Acciones Growth / Mid-Cap
+        "PLTR", "SQ", "ENPH", "O", "COIN", "FSLR",
+        # Mega-Caps tradicionales
+        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "SPY", "QQQ"
+    ]
+    
+    selected_equities = st.multiselect(
+        "Activos en Renta Variable / Commodities:",
+        options=all_equity_options,
+        default=["IWM", "XLE", "VNQ", "EEM", "GLD", "NVDA"],
+        help="Incluye activos descorrelacionados: Small-Caps (IWM), Energía (XLE), Bienes Raíces (VNQ), Emergentes (EEM), Oro (GLD) y Tecnología (NVDA) para evitar la hiperconcentración en monopolios mega-cap."
     )
     
-    # Permitir ticker personalizado
-    custom_ticker = st.text_input("Agregar Ticker Adicional (Yahoo Finance):", "").upper().strip()
-    if custom_ticker and custom_ticker not in selected_tickers:
-        selected_tickers.append(custom_ticker)
-        
+    custom_ticker = st.text_input("Agregar Ticker Personalizado (Yahoo Finance):", "").upper().strip()
+    if custom_ticker and custom_ticker not in selected_equities:
+        selected_equities.append(custom_ticker)
+
     st.markdown("---")
     
-    # 2. Restricción Presupuestaria y Fricciones
+    # 2. Activo de Renta Fija Explícito de Yahoo Finance
+    st.markdown("#### 🏛️ 2. Activo de Renta Fija (Yahoo Finance)")
+    fixed_income_ticker = st.selectbox(
+        "Instrumento de Renta Fija (ETF de Bonos):",
+        options=["TLT", "IEF", "SHY", "BND", "LQD", "HYG", "TIP"],
+        format_func=lambda x: {
+            "TLT": "TLT - Tesoro EE.UU. 20+ Años (D* ~16.8a)",
+            "IEF": "IEF - Tesoro EE.UU. 7-10 Años (D* ~7.6a)",
+            "SHY": "SHY - Tesoro EE.UU. 1-3 Años (D* ~1.9a)",
+            "BND": "BND - Vanguard Total Bond Market (D* ~6.4a)",
+            "LQD": "LQD - Bonos Corporativos Grado Inversión (D* ~8.3a)",
+            "HYG": "HYG - Bonos Corporativos High Yield (D* ~3.7a)",
+            "TIP": "TIP - Bonos TIPS Protegidos de Inflación (D* ~6.8a)"
+        }.get(x, x),
+        index=0,
+        help="Este activo de renta fija se descarga en tiempo real desde Yahoo Finance y se optimiza en conjunto con la renta variable para amortiguar la volatilidad."
+    )
+    
+    # Combinar activos para la cartera completa
+    selected_tickers = list(selected_equities)
+    if fixed_income_ticker not in selected_tickers:
+        selected_tickers.append(fixed_income_ticker)
+
+    st.markdown("---")
+    
+    # 3. Restricción Presupuestaria y Concentración
+    st.markdown("#### 💰 3. Presupuesto & Concentración")
     budget = st.number_input("Presupuesto Disponible ($ USD):", min_value=1000.0, max_value=5000000.0, value=50000.0, step=1000.0)
+    
+    max_weight_cap = st.slider(
+        "Tope Máximo por Activo (%):", min_value=15, max_value=60, value=25, step=5,
+        help="Fuerza al optimizador a diversificar. Un tope del 25% exige asignar capital en al menos 4 o más activos diferentes, evitando monopolios del 50%+ en una sola acción."
+    )
+    
     broker_fee_bps = st.slider("Comisión de Corretaje (bps):", min_value=0.0, max_value=50.0, value=10.0, step=1.0, 
                                help="10 bps = 0.10% por operación. Modela costos de transacción.")
     
@@ -242,7 +290,7 @@ with tab_port:
     st.subheader("Optimización Cuantitativa de Utilidad con Contracción Ledoit-Wolf")
     st.write(f"Optimizando asignación para un presupuesto de **${budget:,.2f} USD** con parámetro de aversión **$\\gamma = {gamma_val:.2f}$**.")
     
-    # Ejecutar optimización matemática
+    # Ejecutar optimización matemática con restricción de concentración
     opt_result = optimize_portfolio_utility(
         returns=returns_df,
         gamma=gamma_val,
@@ -250,7 +298,8 @@ with tab_port:
         latest_prices=latest_prices,
         spreads=spreads_dict,
         broker_fee_bps=broker_fee_bps,
-        allow_short=allow_short
+        allow_short=allow_short,
+        max_weight_per_asset=max_weight_cap / 100.0
     )
     
     # Tarjetas métricas de resumen
@@ -262,9 +311,27 @@ with tab_port:
     
     st.markdown("---")
     
+    # Clasificador de Activo para la tabla
+    def get_asset_category(t):
+        if t == fixed_income_ticker:
+            return f"🏛️ Renta Fija ({t})"
+        elif t in ["GLD", "SLV", "USO", "DBA", "CPER"]:
+            return "🪙 Materia Prima / Oro"
+        elif t in ["IWM", "IJH", "VB"]:
+            return "📈 Small/Mid-Cap"
+        elif t in ["EEM", "EWZ", "EWW", "INDA", "EFA"]:
+            return "🌍 Mercado Emergente"
+        elif t in ["VNQ", "XLE", "XLV", "XLU", "XLI"]:
+            return "🏢 Sectorial / REIT"
+        elif t in ["PLTR", "SQ", "ENPH", "O", "COIN", "FSLR"]:
+            return "🚀 Growth / Mid-Cap"
+        else:
+            return "💻 Renta Variable (Mega-Cap)"
+
     # Tabla de Asignación Discreta de Acciones
     alloc_df = pd.DataFrame({
         "Ticker": opt_result['asset_names'],
+        "Clase de Activo": [get_asset_category(a) for a in opt_result['asset_names']],
         "Precio Actual ($)": [round(latest_prices[a], 2) for a in opt_result['asset_names']],
         "Peso Óptimo (%)": [round(opt_result['weights_lw'][a] * 100, 2) for a in opt_result['asset_names']],
         "Títulos Enteros": [opt_result['shares'][a] for a in opt_result['asset_names']],
@@ -272,7 +339,9 @@ with tab_port:
         "Spread Estimado (bps)": [round(spreads_dict.get(a, 0.001)*10000, 1) for a in opt_result['asset_names']]
     })
     
-    t_col1, t_col2 = st.columns([1.4, 1.0])
+    st.info(f"🏛️ **Activo de Renta Fija Integrado**: `{fixed_income_ticker}` ({get_fixed_income_profile(fixed_income_ticker)['name']}) | Tope de Concentración: **{max_weight_cap}% por activo**")
+    
+    t_col1, t_col2 = st.columns([1.5, 0.9])
     
     with t_col1:
         st.markdown("#### 🎯 Asignación Discreta por Título (Resolución de Presupuesto)")
@@ -419,64 +488,80 @@ with tab_port:
 # TAB 3: DINÁMICA DE RENTA FIJA (DURACIÓN Y CONVEXIDAD)
 # =============================================================
 with tab_bonds:
-    st.subheader("Dinámica Analítica de Renta Fija: Sensibilidad a Tasas de Interés")
-    st.write("Modelado de instrumentos de deuda gubernamental / corporativa mediante la expansión de Taylor de segundo orden en función del rendimiento al vencimiento ($y$).")
+    st.subheader(f"Dinámica de Renta Fija: Activo Seleccionado `{fixed_income_ticker}`")
+    fi_prof = get_fixed_income_profile(fixed_income_ticker, current_price=latest_prices.get(fixed_income_ticker))
     
-    b_col1, b_col2, b_col3, b_col4 = st.columns(4)
-    with b_col1:
-        face_val = st.number_input("Valor Nominal ($ Face Value):", value=1000.0, step=100.0)
-    with b_col2:
-        coupon_pct = st.number_input("Tasa Cupón Anual (%):", value=5.0, step=0.25) / 100.0
-    with b_col3:
-        ytm_pct = st.number_input("Tir / YTM Actual (%):", value=4.5, step=0.25) / 100.0
-    with b_col4:
-        mat_years = st.number_input("Maduración (Años):", value=10, min_value=1, max_value=30, step=1)
-        
-    bond_met = calculate_bond_metrics(
-        face_value=face_val,
-        coupon_rate=coupon_pct,
-        ytm=ytm_pct,
-        maturity_years=mat_years,
-        freq=2
-    )
+    st.markdown(f"""
+    <div style="background-color: #1E2638; padding: 16px; border-radius: 8px; border-left: 5px solid #1E88E5; margin-bottom: 20px;">
+        <h4 style="margin:0; color: #64B5F6;">🏛️ {fi_prof['name']} (Ticker: {fixed_income_ticker})</h4>
+        <p style="margin: 4px 0; color: #ECEFF1;"><strong>Categoría:</strong> {fi_prof['category']} | <strong>Calificación Crediticia:</strong> {fi_prof['credit_rating']}</p>
+        <p style="margin: 0; color: #B0BEC5; font-size: 0.95rem;">{fi_prof['description']}</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Métricas clave de Renta Fija
+    bond_met = fi_prof['metrics']
+    mkt_p = fi_prof['market_price']
+    
     bm1, bm2, bm3, bm4, bm5 = st.columns(5)
-    bm1.metric("Precio del Bono ($)", f"${bond_met['bond_price']:,.2f}")
-    bm2.metric("Duración Macaulay", f"{bond_met['mac_duration']:.2f} años")
-    bm3.metric("Duración Modificada (D*)", f"{bond_met['mod_duration']:.2f} años")
-    bm4.metric("Convexidad (C)", f"{bond_met['convexity']:.2f}")
-    bm5.metric("DV01 (1 bp shock)", f"${bond_met['dv01']:.4f}")
+    bm1.metric("Precio de Mercado (Yahoo Finance)", f"${mkt_p:,.2f}")
+    bm2.metric("Duración Modificada Efectiva (D*)", f"{fi_prof['effective_duration']:.2f} años")
+    bm3.metric("Convexidad (C)", f"{fi_prof['convexity']:.2f}")
+    bm4.metric("Rendimiento al Vencimiento (YTM)", f"{fi_prof['ytm']*100:.2f}%")
+    bm5.metric("DV01 por Acción (1 bp shock)", f"${fi_prof['dv01_share']:.4f}")
     
     st.markdown("---")
     
-    # Simulación de Shocks de Tasas (Yield Shocks)
-    shock_range = st.slider("Rango de Simulación de Shock de Tasas (± bps):", min_value=50, max_value=400, value=200, step=25)
+    # Explicación de cómo entra en la optimización
+    col_fi_exp1, col_fi_exp2 = st.columns([1.3, 1.0])
+    with col_fi_exp1:
+        st.markdown(f"#### 🎯 ¿Cómo y por qué se utiliza `{fixed_income_ticker}` para optimizar la cartera?")
+        st.write(f"""
+        1. **Cotización e Ingesta Real**: `{fixed_income_ticker}` no es una constante teórica; **es un ETF cotizado en vivo en Yahoo Finance**. Su vector de retornos históricos y su matriz de correlación se calculan directamente contra sus activos de renta variable.
+        2. **Efecto Amortiguador y Varianza Mínima**: Al tener una correlación baja o negativa con acciones (`IWM`, `NVDA`, `XLE`, etc.), el estimador de Ledoit-Wolf $\\Sigma_{{\\text{{LW}}}}$ utiliza este instrumento para estabilizar la cartera y maximizar el Ratio de Sharpe.
+        3. **Sensibilidad a Tasas de Interés (FED)**: Con una duración efectiva de **{fi_prof['effective_duration']} años**, una caída de 100 bps en las tasas de interés impulsará el precio de este ETF en aproximadamente un **+{fi_prof['effective_duration']:.1f}%**.
+        """)
+    with col_fi_exp2:
+        # Gráfico interactivo de correlación del bono con los demás activos
+        if fixed_income_ticker in returns_df.columns and len(returns_df.columns) > 1:
+            bond_corrs = returns_df.corr()[fixed_income_ticker].drop(fixed_income_ticker)
+            fig_corr = px.bar(
+                x=bond_corrs.index, y=bond_corrs.values,
+                labels={'x': 'Activo', 'y': f'Correlación con {fixed_income_ticker}'},
+                title=f"Correlación de {fixed_income_ticker} vs Renta Variable",
+                color=bond_corrs.values, color_continuous_scale="RdYlGn_r"
+            )
+            fig_corr.update_layout(height=260, margin=dict(l=10, r=10, t=30, b=10))
+            st.plotly_chart(fig_corr, use_container_width=True)
+
+    st.markdown("---")
+    # Simulación de Shocks de Tasas
+    shock_range = st.slider("Rango de Simulación de Shock de Tasas (± bps):", min_value=50, max_value=400, value=200, step=25, key="sld_fi_shock_tab3")
     shocks_df = simulate_yield_shocks(bond_met, shock_bps_range=shock_range, n_points=80)
+    
+    scale_factor = mkt_p / bond_met['bond_price']
     
     fig_bond = go.Figure()
     fig_bond.add_trace(go.Scatter(
-        x=shocks_df['Shock_bps'], y=shocks_df['Precio_Exacto'],
-        mode='lines', name='Precio Exacto (Full Re-pricing)',
+        x=shocks_df['Shock_bps'], y=shocks_df['Precio_Exacto'] * scale_factor,
+        mode='lines', name=f'Precio Exacto {fixed_income_ticker} (Full Re-pricing)',
         line=dict(color='#00E676', width=3)
     ))
     fig_bond.add_trace(go.Scatter(
-        x=shocks_df['Shock_bps'], y=shocks_df['Aprox_Duracion_Convexidad'],
-        mode='lines', name='Duración + Convexidad (Taylor 2° Orden)',
+        x=shocks_df['Shock_bps'], y=shocks_df['Aprox_Duracion_Convexidad'] * scale_factor,
+        mode='lines', name='Taylor 2° Orden (Duración + Convexidad)',
         line=dict(color='#1E88E5', width=2, dash='dash')
     ))
     fig_bond.add_trace(go.Scatter(
-        x=shocks_df['Shock_bps'], y=shocks_df['Aprox_Duracion_Lineal'],
+        x=shocks_df['Shock_bps'], y=shocks_df['Aprox_Duracion_Lineal'] * scale_factor,
         mode='lines', name='Aproximación Lineal (Sólo Duración)',
         line=dict(color='#FF5252', width=2, dash='dot')
     ))
     
     fig_bond.update_layout(
-        title="Respuesta del Precio del Bono ante Shocks en Tasas de Interés (Δy)",
-        xaxis_title="Shock de Rendimiento Δy (Puntos Básicos)",
-        yaxis_title="Precio del Bono ($ USD)",
-        hovermode="x unified",
-        height=420,
+        title=f"Sensibilidad del Precio de {fixed_income_ticker} ante Movimientos en Tasas de Interés (Δy)",
+        xaxis_title="Variación en Rendimiento Δy (Puntos Básicos)",
+        yaxis_title=f"Precio Proyectado de {fixed_income_ticker} ($ USD)",
+        hovermode="x unified", height=380, margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(yanchor="top", y=0.98, xanchor="right", x=0.98)
     )
     st.plotly_chart(fig_bond, use_container_width=True)

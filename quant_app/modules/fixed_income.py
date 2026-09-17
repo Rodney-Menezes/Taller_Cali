@@ -1,4 +1,4 @@
-﻿import numpy as np
+import numpy as np
 import pandas as pd
 
 def calculate_bond_metrics(face_value=1000.0, coupon_rate=0.05, ytm=0.045, maturity_years=10, freq=2):
@@ -95,3 +95,125 @@ def simulate_yield_shocks(bond_metrics, shock_bps_range=200, n_points=50):
     })
     
     return df_shocks
+
+def get_fixed_income_profile(ticker, current_price=None):
+    """
+    Retorna el perfil institucional y dinámico de los principales instrumentos de Renta Fija
+    disponibles en Yahoo Finance: TLT, IEF, SHY, BND, LQD, HYG, TIP, AGG
+    """
+    profiles = {
+        'TLT': {
+            'name': 'iShares 20+ Year Treasury Bond ETF',
+            'category': 'Tesoro EE.UU. a Largo Plazo (20+ Años)',
+            'face_value': 1000.0,
+            'coupon_rate': 0.0425,
+            'ytm': 0.0455,
+            'maturity_years': 25,
+            'effective_duration': 16.8,
+            'convexity': 3.95,
+            'credit_rating': 'AAA (Soberano EE.UU.)',
+            'description': 'Máxima sensibilidad a las tasas de interés de largo plazo. Actúa como activo refugio durante caídas severas de renta variable.'
+        },
+        'IEF': {
+            'name': 'iShares 7-10 Year Treasury Bond ETF',
+            'category': 'Tesoro EE.UU. a Mediano Plazo (7-10 Años)',
+            'face_value': 1000.0,
+            'coupon_rate': 0.0380,
+            'ytm': 0.0420,
+            'maturity_years': 8,
+            'effective_duration': 7.6,
+            'convexity': 0.85,
+            'credit_rating': 'AAA (Soberano EE.UU.)',
+            'description': 'Sensibilidad intermedia (benchmark del bono a 10 años). Equilibrio entre protección contra desaceleración y moderado riesgo de tasa.'
+        },
+        'SHY': {
+            'name': 'iShares 1-3 Year Treasury Bond ETF',
+            'category': 'Tesoro EE.UU. a Corto Plazo (1-3 Años)',
+            'face_value': 1000.0,
+            'coupon_rate': 0.0450,
+            'ytm': 0.0465,
+            'maturity_years': 2,
+            'effective_duration': 1.9,
+            'convexity': 0.06,
+            'credit_rating': 'AAA (Soberano EE.UU.)',
+            'description': 'Mínimo riesgo de tasa de interés (cuasi-caja). Preserva capital con rendimiento estable cuando la curva de rendimientos está plana.'
+        },
+        'BND': {
+            'name': 'Vanguard Total Bond Market ETF',
+            'category': 'Renta Fija Agregada Grado Inversión (EE.UU.)',
+            'face_value': 1000.0,
+            'coupon_rate': 0.0410,
+            'ytm': 0.0470,
+            'maturity_years': 8,
+            'effective_duration': 6.4,
+            'convexity': 0.62,
+            'credit_rating': 'AA+ (65% Gobierno, 35% Corporativo)',
+            'description': 'Exposición diversificada al mercado completo de deuda grado de inversión de EE.UU. (gobierno y corporaciones de alta calidad).'
+        },
+        'LQD': {
+            'name': 'iShares iBoxx $ Investment Grade Corporate Bond ETF',
+            'category': 'Deuda Corporativa Grado de Inversión',
+            'face_value': 1000.0,
+            'coupon_rate': 0.0520,
+            'ytm': 0.0535,
+            'maturity_years': 12,
+            'effective_duration': 8.3,
+            'convexity': 1.15,
+            'credit_rating': 'BBB a AAA (Corporativo Institucional)',
+            'description': 'Mayor cupón corriente que los bonos soberanos a cambio de asumir riesgo de crédito corporativo de alta calidad.'
+        },
+        'HYG': {
+            'name': 'iShares iBoxx $ High Yield Corporate Bond ETF',
+            'category': 'Deuda Corporativa High Yield / Alto Rendimiento',
+            'face_value': 1000.0,
+            'coupon_rate': 0.0680,
+            'ytm': 0.0715,
+            'maturity_years': 4,
+            'effective_duration': 3.7,
+            'convexity': 0.22,
+            'credit_rating': 'BB a CCC (Alto Rendimiento)',
+            'description': 'Elevado flujo de caja corriente. Mayor correlación positiva con renta variable debido al ciclo económico y menor duración.'
+        },
+        'TIP': {
+            'name': 'iShares TIPS Bond ETF',
+            'category': 'Bonos Protegidos contra la Inflación (TIPS)',
+            'face_value': 1000.0,
+            'coupon_rate': 0.0220,
+            'ytm': 0.0210,
+            'maturity_years': 7,
+            'effective_duration': 6.8,
+            'convexity': 0.70,
+            'credit_rating': 'AAA (Soberano EE.UU.)',
+            'description': 'El capital principal ajusta semestralmente con la inflación de EE.UU. Ofrece cobertura ante sorpresas del IPC.'
+        }
+    }
+    
+    prof = profiles.get(ticker.upper(), {
+        'name': f'Instrumento de Renta Fija ({ticker})',
+        'category': 'Renta Fija General',
+        'face_value': 1000.0,
+        'coupon_rate': 0.0450,
+        'ytm': 0.0450,
+        'maturity_years': 10,
+        'effective_duration': 7.5,
+        'convexity': 0.80,
+        'credit_rating': 'Grado Inversión',
+        'description': f'Instrumento de renta fija o ETF ({ticker}) cotizado en Yahoo Finance.'
+    })
+    
+    metrics = calculate_bond_metrics(
+        face_value=prof['face_value'],
+        coupon_rate=prof['coupon_rate'],
+        ytm=prof['ytm'],
+        maturity_years=prof['maturity_years']
+    )
+    
+    if current_price is not None:
+        prof['market_price'] = float(current_price)
+        prof['dv01_share'] = float(prof['effective_duration'] * current_price * 0.0001)
+    else:
+        prof['market_price'] = metrics['bond_price']
+        prof['dv01_share'] = metrics['dv01']
+        
+    prof['metrics'] = metrics
+    return prof

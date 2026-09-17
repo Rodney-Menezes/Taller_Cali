@@ -1,4 +1,4 @@
-﻿import numpy as np
+import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
@@ -22,11 +22,12 @@ def ledoit_wolf_covariance(returns):
     }
 
 def optimize_portfolio_utility(returns, gamma, budget, latest_prices, spreads=None, 
-                               broker_fee_bps=10.0, current_weights=None, allow_short=False):
+                               broker_fee_bps=10.0, current_weights=None, allow_short=False,
+                               max_weight_per_asset=0.30, min_weight_per_asset=0.0):
     """
     Optimiza la cartera maximizando la Utilidad Esperada cuadrática:
-    Max w^T mu - (gamma / 2) * w^T Sigma_LW w - sum [ c_broker * |w - w_0| + (spread / 2) * |w| ]
-    Sujeto a: sum(w) <= 1, w >= 0 (o w >= -0.2 si allow_short=True).
+    Max w^T mu - (gamma / 2) * w^T Sigma_LW w - sum [ c_broker * |w - w_0| + (spread / 2) * |w| ] + lambda_div * sum(ln(w))
+    Sujeto a: sum(w) <= 1, min_w <= w_i <= max_w.
     """
     n_assets = returns.shape[1]
     asset_names = list(returns.columns)
@@ -60,7 +61,10 @@ def optimize_portfolio_utility(returns, gamma, budget, latest_prices, spreads=No
         turnover = np.sum(np.abs(w - w0))
         costs = c_broker * turnover + 0.5 * np.sum(spreads_vec * np.abs(w))
         
-        utility = port_ret - 0.5 * gamma * port_var - costs
+        # Penalización de entropía suave para evitar monopolios de 1 solo activo (fomenta diversificación)
+        entropy_bonus = 0.0015 * np.sum(np.log(np.maximum(w, 1e-5))) if not allow_short else 0.0
+        
+        utility = port_ret - 0.5 * gamma * port_var - costs + entropy_bonus
         return -utility # Minimizar negativa
 
     # Restricciones
@@ -69,11 +73,14 @@ def optimize_portfolio_utility(returns, gamma, budget, latest_prices, spreads=No
         {'type': 'ineq', 'fun': lambda w: 1.0 - np.sum(w)}
     ]
     
-    # Límites por activo
+    # Límites por activo (Tope máximo de concentración)
+    upper_b = float(max_weight_per_asset) if max_weight_per_asset is not None else 1.0
+    upper_b = max(upper_b, 1.05 / n_assets) # Garantizar viabilidad numérica de sum(w) <= 1
+    
     if allow_short:
-        bounds = [(-0.20, 1.0) for _ in range(n_assets)]
+        bounds = [(-0.20, upper_b) for _ in range(n_assets)]
     else:
-        bounds = [(0.0, 1.0) for _ in range(n_assets)]
+        bounds = [(min_weight_per_asset, upper_b) for _ in range(n_assets)]
         
     w_initial = np.ones(n_assets) / n_assets
     
