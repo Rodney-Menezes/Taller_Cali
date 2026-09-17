@@ -172,6 +172,7 @@ with st.spinner("Descargando cotizaciones de mercado y estimando matrices de cov
     prices_df = market_data['prices']
     returns_df = market_data['returns']
     spreads_dict = market_data['spreads']
+    latest_prices = market_data['latest_prices']
 # -------------------------------------------------------------
 # MOTOR DE INFERENCIA EN CACHÉ PARA DEEP LEARNING (GLOBAL)
 # -------------------------------------------------------------
@@ -1027,7 +1028,7 @@ with tab_signals:
     """)
 
 # =============================================================
-# TAB 5: LABORATORIO DIDÁCTICO & SIMULACIÓN INTERACTIVA DE MODELOS
+# TAB 7: LABORATORIO DIDÁCTICO & SIMULACIÓN INTERACTIVA DE MODELOS
 # =============================================================
 with tab_theory:
     st.subheader("🧪 Laboratorio Cuantitativo Interactivo: Simulación & Gráficos de Modelos")
