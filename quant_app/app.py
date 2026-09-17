@@ -12,6 +12,8 @@ from modules.risk_profiler import calculate_risk_aversion
 from modules.portfolio_optimizer import optimize_portfolio_utility, ledoit_wolf_covariance
 from modules.fixed_income import calculate_bond_metrics, simulate_yield_shocks
 from modules.timing_signals import generate_timing_recommendations, apply_frac_diff
+from modules.portfolio_monte_carlo import simulate_multivariate_portfolio_mc
+from modules.deep_learning_model import train_deep_learning_agent
 
 # Configuración general de la página
 st.set_page_config(
@@ -315,6 +317,104 @@ with tab_port:
     st.plotly_chart(fig_comp, use_container_width=True)
     st.caption("Nota: Observe cómo la covarianza muestral tradicional tiende a concentrar de manera espuria el capital en activos con anomalías pasadas. Ledoit-Wolf contrae la matriz hacia un estimador estructurado, eliminando ruido y estabilizando pesos.")
 
+    st.markdown("---")
+    st.markdown("### 🎲 Simulación Monte Carlo Multivariada de TODO el Portafolio (Cholesky & Ledoit-Wolf)")
+    st.write("Simula la evolución probabilística del **valor total del portafolio ($ USD)** proyectando los activos de forma correlacionada mediante la descomposición de Cholesky $\\Sigma_{\\text{LW}} = L L^T$.")
+    
+    col_mc_ctrl1, col_mc_ctrl2, col_mc_ctrl3 = st.columns(3)
+    with col_mc_ctrl1:
+        horizon_choice = st.selectbox("Horizonte Temporal de Proyección:", ["3 Meses (63 días)", "6 Meses (126 días)", "1 Año (252 días)"], index=2, key="sb_mc_horiz")
+        h_days = 63 if "3 Meses" in horizon_choice else (126 if "6 Meses" in horizon_choice else 252)
+    with col_mc_ctrl2:
+        n_sims = st.slider("Número de Trayectorias Monte Carlo:", min_value=100, max_value=1000, value=300, step=50, key="sld_mc_nsims")
+    with col_mc_ctrl3:
+        rf_mc = st.number_input("Tasa Libre de Riesgo Anual (%):", value=3.5, step=0.25, key="num_mc_rf") / 100.0
+        
+    ann_mu_vec = returns_df.mean().values * 252
+    
+    # Ejecutar simulación de TODO el portafolio
+    mc_port_res = simulate_multivariate_portfolio_mc(
+        shares_dict=opt_result['shares'].to_dict(),
+        latest_prices=latest_prices,
+        annual_returns=ann_mu_vec,
+        cov_matrix=opt_result['cov_lw'],
+        initial_budget=budget,
+        cash_buffer=opt_result['cash_remaining'],
+        asset_names=opt_result['asset_names'],
+        time_horizon_days=h_days,
+        n_simulations=n_sims,
+        risk_free_rate=rf_mc
+    )
+    
+    # Métricas de riesgo de todo el portafolio
+    rc1, rc2, rc3, rc4, rc5 = st.columns(5)
+    rc1.metric("Patrimonio Esperado E[W_T]", f"${mc_port_res['expected_wealth']:,.2f}", 
+               delta=f"{(mc_port_res['expected_wealth'] - budget)/budget*100:+.2f}%")
+    rc2.metric("VaR 95% ($ USD)", f"${mc_port_res['var_95_dollar']:,.2f}", 
+               delta=f"-{mc_port_res['var_95_pct']:.2f}%", delta_color="inverse")
+    rc3.metric("CVaR 95% (Expected Shortfall)", f"${mc_port_res['cvar_95_dollar']:,.2f}", 
+               delta=f"-{mc_port_res['cvar_95_pct']:.2f}%", delta_color="inverse")
+    rc4.metric("Probabilidad de Pérdida", f"{mc_port_res['prob_loss']:.1f}%")
+    rc5.metric("Máx Drawdown Promedio", f"{mc_port_res['max_drawdown_avg']:.2f}%")
+    
+    col_mc_chart1, col_mc_chart2 = st.columns([1.6, 1.0])
+    
+    with col_mc_chart1:
+        # Abanico de Cono de Riqueza Temporal
+        cone = mc_port_res['cone_df']
+        fig_cone = go.Figure()
+        
+        # Banda 90% (P05 a P95)
+        fig_cone.add_trace(go.Scatter(
+            x=cone['Dia'], y=cone['P95'], mode='lines', line=dict(width=0), showlegend=False
+        ))
+        fig_cone.add_trace(go.Scatter(
+            x=cone['Dia'], y=cone['P05'], mode='lines', line=dict(width=0),
+            fill='tonexty', fillcolor='rgba(0, 230, 118, 0.15)', name='Intervalo de Confianza 90% (P05 - P95)'
+        ))
+        
+        # Banda 50% (P25 a P75)
+        fig_cone.add_trace(go.Scatter(
+            x=cone['Dia'], y=cone['P75'], mode='lines', line=dict(width=0), showlegend=False
+        ))
+        fig_cone.add_trace(go.Scatter(
+            x=cone['Dia'], y=cone['P25'], mode='lines', line=dict(width=0),
+            fill='tonexty', fillcolor='rgba(0, 230, 118, 0.30)', name='Intervalo Intercuartil 50% (P25 - P75)'
+        ))
+        
+        # Mediana
+        fig_cone.add_trace(go.Scatter(
+            x=cone['Dia'], y=cone['Mediana'], mode='lines', name='Trayectoria Mediana (P50)',
+            line=dict(color='#00E676', width=3)
+        ))
+        
+        # Presupuesto Inicial
+        fig_cone.add_hline(
+            y=budget, line_dash="dash", line_color="#FFD600",
+            annotation_text=f"Capital Inicial (${budget:,.0f})", annotation_position="top left"
+        )
+        
+        fig_cone.update_layout(
+            title=f"Cono de Riqueza Probabilístico de TODO el Portafolio ({h_days} días de mercado)",
+            xaxis_title="Días de Negociación", yaxis_title="Valor de la Cartera ($ USD)",
+            height=380, margin=dict(l=20, r=20, t=40, b=20), hovermode="x unified"
+        )
+        st.plotly_chart(fig_cone, use_container_width=True)
+        
+    with col_mc_chart2:
+        # Distribución de Riqueza Final al Horizonte
+        fig_hist = px.histogram(
+            x=mc_port_res['final_wealth'], nbins=30,
+            title="Distribución de Capital Final",
+            labels={'x': 'Patrimonio Final ($ USD)', 'y': 'Frecuencia'},
+            color_discrete_sequence=['#1E88E5']
+        )
+        fig_hist.add_vline(x=budget, line_dash='dash', line_color='#FFD600', annotation_text="Base")
+        fig_hist.add_vline(x=mc_port_res['p05'], line_dash='dot', line_color='#FF5252', annotation_text="VaR 95%")
+        fig_hist.add_vline(x=mc_port_res['expected_wealth'], line_dash='solid', line_color='#00E676', annotation_text="E[W]")
+        fig_hist.update_layout(height=380, margin=dict(l=20, r=20, t=40, b=20), showlegend=False)
+        st.plotly_chart(fig_hist, use_container_width=True)
+
 # =============================================================
 # TAB 3: DINÁMICA DE RENTA FIJA (DURACIÓN Y CONVEXIDAD)
 # =============================================================
@@ -387,48 +487,161 @@ with tab_bonds:
     """)
 
 # =============================================================
-# TAB 4: SEÑALES ML LONG/SHORT & TIEMPO DE MADURACIÓN
+# TAB 4: SEÑALES ML/DL LONG/SHORT & TIEMPO DE MADURACIÓN
 # =============================================================
 with tab_signals:
-    st.subheader("Señales Direccionales de Machine Learning & Tiempos de Maduración")
-    st.write("Clasificación de árboles aleatorios entrenados sobre **series con diferenciación fraccionaria ($d^*=0.40$)** para predecir la dirección futura, complementados con la **semivida de Ornstein-Uhlenbeck** para determinar el horizonte óptimo de tenencia (maduración del trade).")
+    st.subheader("Señales Direccionales de Inteligencia Artificial & Tiempos de Maduración")
+    st.write("Seleccione el motor de inferencia cuantitativa. Puede comparar modelos de **Machine Learning clásico (Random Forest)** contra redes neuronales de **Deep Learning avanzadas (BiLSTM con Mecanismo de Auto-Atención Temporal en PyTorch)** entrenadas sobre los datos históricos reales.")
     
-    with st.spinner("Computando transformaciones fraccionarias y entrenando modelos de ensamble..."):
-        signals_df = generate_timing_recommendations(prices_df, returns_df)
+    col_eng1, col_eng2 = st.columns([2, 1])
+    with col_eng1:
+        ai_engine = st.radio(
+            "Seleccione el Motor Cuantitativo de Aprendizaje:",
+            [
+                "🤖 Deep Learning: Red Neuronal Recurrente BiLSTM con Auto-Atención Temporal (PyTorch)",
+                "🌲 Machine Learning: Bosque Aleatorio sobre Memoria Fraccionaria (Scikit-Learn)"
+            ],
+            index=0,
+            horizontal=False
+        )
+    with col_eng2:
+        dl_epochs = st.slider("Épocas de Entrenamiento PyTorch:", min_value=10, max_value=40, value=20, step=5,
+                             help="Número de iteraciones de optimización por descenso de gradiente (AdamW) en la red neuronal.")
         
-    st.dataframe(signals_df.set_index("Activo"), use_container_width=True)
+    use_deep_learning = "Deep Learning" in ai_engine
     
+    # -------------------------------------------------------------
+    # ENTRENAMIENTO E INFERENCIA DE MODELOS
+    # -------------------------------------------------------------
+    dl_results = {}
+    with st.spinner(f"Entrenando modelos de {'Deep Learning (PyTorch BiLSTM-Attention)' if use_deep_learning else 'Machine Learning (Random Forest)'} sobre cotizaciones reales..."):
+        if use_deep_learning:
+            # Entrenamiento en vivo de PyTorch para cada activo
+            dl_signals_list = []
+            for ticker in selected_tickers:
+                p_s = prices_df[ticker].dropna()
+                r_s = returns_df[ticker].dropna()
+                fd_s = apply_frac_diff(np.log(p_s), d=0.40)
+                
+                # Entrenar red neuronal PyTorch
+                dl_res = train_deep_learning_agent(p_s, r_s, fd_s, epochs=dl_epochs, seq_len=15)
+                dl_results[ticker] = dl_res
+                
+                curr_price = float(p_s.iloc[-1])
+                daily_vol = float(r_s.iloc[-20:].std())
+                half_life = float(np.clip(np.log(2.0) / (daily_vol * 15 + 1e-4), 3, 30))
+                
+                sig = dl_res['signal']
+                if sig == "LONG":
+                    act = "Comprar en Largo (Long)"
+                    sl = curr_price * (1.0 - 2.0 * daily_vol)
+                    tp = curr_price * (1.0 + 3.0 * daily_vol)
+                    h_days = int(np.round(half_life * 0.8))
+                elif sig == "SHORT":
+                    act = "Vender en Corto (Short)"
+                    sl = curr_price * (1.0 + 2.0 * daily_vol)
+                    tp = curr_price * (1.0 - 3.0 * daily_vol)
+                    h_days = int(np.round(half_life * 0.8))
+                else:
+                    act = "Neutral / Mantener (Cash)"
+                    sl = curr_price * (1.0 - daily_vol)
+                    tp = curr_price * (1.0 + daily_vol)
+                    h_days = int(np.round(half_life))
+                    
+                h_days = max(3, min(45, h_days))
+                
+                dl_signals_list.append({
+                    'Activo': ticker,
+                    'Precio Actual ($)': round(curr_price, 2),
+                    'Señal AI': sig,
+                    'Recomendación': act,
+                    'Confianza Softmax': f"{dl_res['confidence']:.1f}%",
+                    'Accuracy Validación (OOS)': f"{dl_res['val_acc']:.1f}%",
+                    'Maduración Sugerida (Días)': h_days,
+                    'Take-Profit Sugerido ($)': round(tp, 2),
+                    'Stop-Loss Dinámico ($)': round(sl, 2),
+                    'Volatilidad Diaria': f"{daily_vol*100:.2f}%"
+                })
+            active_signals_df = pd.DataFrame(dl_signals_list)
+        else:
+            active_signals_df = generate_timing_recommendations(prices_df, returns_df)
+            if 'Señal ML' in active_signals_df.columns:
+                active_signals_df = active_signals_df.rename(columns={'Señal ML': 'Señal AI'})
+
+    st.dataframe(active_signals_df.set_index("Activo"), use_container_width=True)
     st.markdown("---")
     
-    # Análisis Detallado de un Activo Seleccionado
-    asset_inspect = st.selectbox("Seleccione un Activo para inspeccionar su estructura de memoria fraccionaria:", selected_tickers)
+    # -------------------------------------------------------------
+    # INSPECTOR DE APRENDIZAJE REAL DE LA RED NEURONAL / ML
+    # -------------------------------------------------------------
+    st.markdown("### 🧠 Inspector de Aprendizaje y Mecanismos Internos")
+    asset_inspect = st.selectbox("Seleccione un Activo para auditar el aprendizaje del modelo:", selected_tickers, key="sb_audit_asset")
     
-    col_sig1, col_sig2 = st.columns(2)
-    
-    with col_sig1:
-        p_asset = prices_df[asset_inspect].dropna()
-        fd_asset = apply_frac_diff(np.log(p_asset), d=0.40)
+    if use_deep_learning and asset_inspect in dl_results:
+        agent_data = dl_results[asset_inspect]
         
-        fig_fd = go.Figure()
-        fig_fd.add_trace(go.Scatter(x=fd_asset.index, y=fd_asset.values, name="FracDiff (d=0.40)", line=dict(color="#FFD600", width=1.5)))
-        fig_fd.update_layout(
-            title=f"Serie Estacionaria con Memoria Conservada ({asset_inspect})",
-            xaxis_title="Fecha", yaxis_title="Valor Fraccionario",
-            height=320, margin=dict(l=20, r=20, t=40, b=20)
-        )
-        st.plotly_chart(fig_fd, use_container_width=True)
+        col_met1, col_met2, col_met3, col_met4 = st.columns(4)
+        col_met1.metric("Precisión Out-of-Sample (Val Accuracy)", f"{agent_data['val_acc']:.1f}%")
+        col_met2.metric("Épocas de Entrenamiento", f"{agent_data['epochs_trained']}")
+        col_met3.metric("Muestras de Entrenamiento", f"{agent_data['num_train_samples']} secuencias")
+        col_met4.metric("Muestras de Testeo", f"{agent_data['num_val_samples']} secuencias")
         
-    with col_sig2:
-        # Gráfico de Maduración (Half-Life en días)
-        fig_mat = px.bar(
-            signals_df, x="Activo", y="Maduración Sugerida (Días)",
-            color="Señal ML",
-            color_discrete_map={"LONG": "#00E676", "SHORT": "#FF5252", "NEUTRAL": "#B0BEC5"},
-            title="Horizonte Óptimo de Maduración (Semivida O-U en Días de Mercado)"
-        )
-        fig_mat.update_layout(height=320, margin=dict(l=20, r=20, t=40, b=20))
-        st.plotly_chart(fig_mat, use_container_width=True)
+        col_dl_plot1, col_dl_plot2 = st.columns(2)
         
+        with col_dl_plot1:
+            # Curva de Pérdida real de PyTorch por Época
+            loss_curve = agent_data['train_loss_history']
+            fig_loss = go.Figure()
+            fig_loss.add_trace(go.Scatter(
+                x=list(range(1, len(loss_curve) + 1)), y=loss_curve,
+                mode='lines+markers', name='Loss PyTorch (CrossEntropy)',
+                line=dict(color='#00E676', width=2.5)
+            ))
+            fig_loss.update_layout(
+                title=f"Curva de Pérdida en Entrenamiento PyTorch ({asset_inspect})",
+                xaxis_title="Época de Entrenamiento (Epoch)", yaxis_title="Loss de Optimización",
+                height=320, margin=dict(l=20, r=20, t=40, b=20)
+            )
+            st.plotly_chart(fig_loss, use_container_width=True)
+            st.caption("Esta curva demuestra el **aprendizaje empírico real**: la pérdida desciende a medida que el optimizador AdamW ajusta los pesos de las matrices LSTM y de Atención.")
+            
+        with col_dl_plot2:
+            # Pesos de Atención Temporal (Attention Weights)
+            attn_w = agent_data['attention_weights']
+            days_labels = [f"t-{len(attn_w)-i}" for i in range(len(attn_w))]
+            fig_attn = px.bar(
+                x=days_labels, y=attn_w,
+                title=f"Pesos del Mecanismo de Auto-Atención Temporal ({asset_inspect})",
+                labels={'x': 'Día en la Ventana Temporal de Entrada', 'y': 'Peso de Atención (Softmax α_t)'},
+                color=attn_w, color_continuous_scale="Viridis"
+            )
+            fig_attn.update_layout(height=320, margin=dict(l=20, r=20, t=40, b=20), showlegend=False)
+            st.plotly_chart(fig_attn, use_container_width=True)
+            st.caption("Los pesos de atención revelan **qué días específicos del pasado** la red neuronal consideró matemáticamente más determinantes para predecir la dirección futura.")
+    else:
+        col_sig1, col_sig2 = st.columns(2)
+        with col_sig1:
+            p_asset = prices_df[asset_inspect].dropna()
+            fd_asset = apply_frac_diff(np.log(p_asset), d=0.40)
+            fig_fd = go.Figure()
+            fig_fd.add_trace(go.Scatter(x=fd_asset.index, y=fd_asset.values, name="FracDiff (d=0.40)", line=dict(color="#FFD600", width=1.5)))
+            fig_fd.update_layout(
+                title=f"Serie Estacionaria con Memoria Conservada ({asset_inspect})",
+                xaxis_title="Fecha", yaxis_title="Valor Fraccionario",
+                height=320, margin=dict(l=20, r=20, t=40, b=20)
+            )
+            st.plotly_chart(fig_fd, use_container_width=True)
+            
+        with col_sig2:
+            fig_mat = px.bar(
+                active_signals_df, x="Activo", y="Maduración Sugerida (Días)",
+                color="Señal AI",
+                color_discrete_map={"LONG": "#00E676", "SHORT": "#FF5252", "NEUTRAL": "#B0BEC5"},
+                title="Horizonte Óptimo de Maduración (Semivida O-U en Días de Mercado)"
+            )
+            fig_mat.update_layout(height=320, margin=dict(l=20, r=20, t=40, b=20))
+            st.plotly_chart(fig_mat, use_container_width=True)
+            
     st.markdown("""
     > [!TIP]
     > **Gestión de Riesgo Dinámica**: 
@@ -738,74 +951,163 @@ with tab_theory:
             st.info("A $d=1.0$ (diferenciación entera tradicional), la memoria cae por debajo del 15%, transformando la serie en ruido blanco. A $d=0.40$, logramos estacionariedad mientras mantenemos los canales estructurales y soportes históricos.")
 
     # -------------------------------------------------------------
-    # SUBTAB 5: SIMULACIÓN ORNSTEIN-UHLENBECK
+    # SUBTAB 5: SIMULACIÓN MONTE CARLO (PORTAFOLIO & DIFUSIÓN)
     # -------------------------------------------------------------
     with subtab5:
-        st.markdown("### 🔄 Proceso de Difusión de Ornstein-Uhlenbeck & Semivida de Maduración")
-        st.latex(r"dy_t = \theta (\mu - y_t) dt + \sigma dW_t, \quad t_{1/2} = \frac{\ln(2)}{\theta}")
-        st.write("Simulación estocástica de trayectorias de precios y spreads que experimentan reversión a la media. Permite determinar científicamente la duración óptima de un trade antes de su decaimiento.")
+        st.markdown("### 🎲 Simulaciones Estocásticas de Monte Carlo: Portafolio & Difusión")
+        st.write("Explore tanto la **simulación multivariada de TODO el portafolio** (proyectando todos los activos de forma correlacionada con Cholesky) como los **procesos estocásticos de reversión a la media** (Ornstein-Uhlenbeck).")
         
-        col_ou1, col_ou2 = st.columns([1, 2])
-        with col_ou1:
-            st.markdown("#### Parámetros Estocásticos")
-            theta_sim = st.slider("Velocidad de Reversión (θ):", 0.5, 15.0, 4.0, 0.5, key="sld_th_ou")
-            mu_sim = st.slider("Nivel de Equilibrio (μ $):", 50.0, 200.0, 100.0, 5.0, key="sld_mu_ou")
-            y0_sim = st.slider("Precio Inicial Desviado (y0 $):", 50.0, 200.0, 125.0, 5.0, key="sld_y0_ou")
-            sigma_sim = st.slider("Volatilidad de Difusión (σ):", 5.0, 50.0, 15.0, 2.5, key="sld_sig_ou")
-            n_paths = st.slider("Número de Trayectorias Monte Carlo:", 5, 30, 12, key="sld_np_ou")
-            n_days = st.slider("Horizonte de Simulación (Días):", 15, 90, 45, key="sld_nd_ou")
+        mc_type = st.radio(
+            "Seleccione el Experimento de Monte Carlo:",
+            [
+                "🏛️ Simulación Multivariada de TODO el Portafolio (Cholesky & Ledoit-Wolf)",
+                "🔄 Proceso de Difusión Ornstein-Uhlenbeck (Reversión a la Media de Spread)"
+            ],
+            index=0,
+            horizontal=True
+        )
+        
+        if "TODO el Portafolio" in mc_type:
+            st.latex(r"W_t = \sum_{i=1}^N \text{Shares}_i \cdot S_{i, t} + \text{Cash}_t, \quad S_{i, t} = S_{i, t-1} \exp\left(\mu_i \Delta t + [L Z]_i \sqrt{\Delta t}\right)")
+            st.write("Proyección probabilística del valor conjunto del patrimonio neto. Incorpora la estructura completa de covarianzas regularizadas $\\Sigma_{\\text{LW}} = L L^T$ para capturar el efecto de la diversificación real.")
             
-            dt_day = 1.0 / 252.0
-            half_life_days = np.log(2.0) / (theta_sim * dt_day)
-            half_life_days = float(np.clip(half_life_days, 1.0, n_days))
-            
-            st.metric("Semivida Analítica (t₁/₂)", f"{half_life_days:.1f} días de mercado")
-            st.caption("Tiempo estadístico esperado para que el 50% de la desviación (|y0 - μ|) sea absorbida.")
-            
-        with col_ou2:
-            np.random.seed(42)
-            dt = 1.0 / 252.0
-            paths = np.zeros((n_days, n_paths))
-            paths[0] = y0_sim
-            
-            for t in range(1, n_days):
-                dW = np.random.normal(0, np.sqrt(dt), n_paths)
-                paths[t] = paths[t-1] + theta_sim * (mu_sim - paths[t-1]) * dt + sigma_sim * dW
+            col_pmc1, col_pmc2 = st.columns([1, 2])
+            with col_pmc1:
+                st.markdown("#### Parámetros del Portafolio")
+                mc_horiz_lab = st.slider("Horizonte de Proyección (Días de Mercado):", 30, 504, 252, step=21, key="sld_mc_h_lab")
+                mc_nsim_lab = st.slider("Número de Simulaciones:", 100, 1000, 400, step=50, key="sld_mc_n_lab")
+                vol_mult = st.slider("Multiplicador de Estrés de Volatilidad:", 0.5, 2.5, 1.0, 0.1,
+                                     help="1.0 = Volatilidad histórica normal. > 1.0 = Simulación de estrés de mercado (Stress-testing).")
+                rf_lab = st.number_input("Tasa Libre de Riesgo (%):", value=3.5, step=0.25, key="num_mc_rf_lab") / 100.0
                 
-            fig_ou = go.Figure()
-            days_x = np.arange(n_days)
-            for p in range(n_paths):
-                fig_ou.add_trace(go.Scatter(
-                    x=days_x, y=paths[:, p], mode='lines',
-                    line=dict(width=1), opacity=0.4, showlegend=False
-                ))
-                
-            mean_path = np.mean(paths, axis=1)
-            fig_ou.add_trace(go.Scatter(
-                x=days_x, y=mean_path, mode='lines', name='Trayectoria Media Simulada',
-                line=dict(color='#00E676', width=3)
-            ))
-            
-            fig_ou.add_hline(
-                y=mu_sim, line_dash="dash", line_color="#FFD600",
-                annotation_text=f"Equilibrio a Largo Plazo μ (${mu_sim:.1f})",
-                annotation_position="top right"
-            )
-            
-            if half_life_days <= n_days:
-                fig_ou.add_vline(
-                    x=half_life_days, line_dash="dot", line_color="#FF5252",
-                    annotation_text=f"Maduración t₁/₂ ({half_life_days:.1f}d)",
-                    annotation_position="bottom right"
+                # Ejecutar simulación con matriz escalada por estrés
+                stressed_cov = opt_result['cov_lw'] * (vol_mult ** 2)
+                res_mc_lab = simulate_multivariate_portfolio_mc(
+                    shares_dict=opt_result['shares'].to_dict(),
+                    latest_prices=latest_prices,
+                    annual_returns=returns_df.mean().values * 252,
+                    cov_matrix=stressed_cov,
+                    initial_budget=budget,
+                    cash_buffer=opt_result['cash_remaining'],
+                    asset_names=opt_result['asset_names'],
+                    time_horizon_days=mc_horiz_lab,
+                    n_simulations=mc_nsim_lab,
+                    risk_free_rate=rf_lab
                 )
                 
-            fig_ou.update_layout(
-                title="Simulación Monte Carlo de Reversión a la Media (Proceso O-U)",
-                xaxis_title="Días de Mercado Transcurridos", yaxis_title="Precio del Activo ($ USD)",
-                height=380, margin=dict(l=20, r=20, t=40, b=20)
-            )
-            st.plotly_chart(fig_ou, use_container_width=True)
-            st.info("Las posiciones cuantitativas de arbitraje o reversión deben cerrarse cerca de la **semivida $t_{1/2}$**, evitando dejar capital inmovilizado cuando la velocidad de convergencia se ralentiza asintóticamente.")
+                st.metric("Patrimonio Esperado E[W]", f"${res_mc_lab['expected_wealth']:,.2f}", 
+                          delta=f"{(res_mc_lab['expected_wealth']-budget)/budget*100:+.2f}%")
+                st.metric("VaR 95% en Dólares", f"${res_mc_lab['var_95_dollar']:,.2f}", 
+                          delta=f"-{res_mc_lab['var_95_pct']:.1f}%", delta_color="inverse")
+                st.metric("CVaR 95% (Pérdida en Cola)", f"${res_mc_lab['cvar_95_dollar']:,.2f}", 
+                          delta=f"-{res_mc_lab['cvar_95_pct']:.1f}%", delta_color="inverse")
+                st.metric("Probabilidad de Pérdida", f"{res_mc_lab['prob_loss']:.1f}%")
+                
+            with col_pmc2:
+                cone_lab = res_mc_lab['cone_df']
+                fig_port_mc = go.Figure()
+                
+                # Banda 90% (P05 a P95)
+                fig_port_mc.add_trace(go.Scatter(
+                    x=cone_lab['Dia'], y=cone_lab['P95'], mode='lines', line=dict(width=0), showlegend=False
+                ))
+                fig_port_mc.add_trace(go.Scatter(
+                    x=cone_lab['Dia'], y=cone_lab['P05'], mode='lines', line=dict(width=0),
+                    fill='tonexty', fillcolor='rgba(30, 136, 229, 0.15)', name='Intervalo de Confianza 90% (P05 - P95)'
+                ))
+                
+                # Mediana
+                fig_port_mc.add_trace(go.Scatter(
+                    x=cone_lab['Dia'], y=cone_lab['Mediana'], mode='lines', name='Trayectoria Mediana P50',
+                    line=dict(color='#00E676', width=3)
+                ))
+                
+                # Muestra de 15 trayectorias individuales
+                w_paths = res_mc_lab['wealth_paths']
+                days_idx = np.arange(mc_horiz_lab + 1)
+                for p in range(min(15, mc_nsim_lab)):
+                    fig_port_mc.add_trace(go.Scatter(
+                        x=days_idx, y=w_paths[:, p], mode='lines',
+                        line=dict(width=1), opacity=0.3, showlegend=False
+                    ))
+                    
+                fig_port_mc.add_hline(
+                    y=budget, line_dash="dash", line_color="#FFD600",
+                    annotation_text=f"Capital Inicial (${budget:,.0f})", annotation_position="top left"
+                )
+                
+                fig_port_mc.update_layout(
+                    title=f"Evolución Estocástica de TODO el Portafolio ({mc_nsim_lab} escenarios)",
+                    xaxis_title="Días de Negociación", yaxis_title="Patrimonio Neto ($ USD)",
+                    height=380, margin=dict(l=20, r=20, t=40, b=20), hovermode="x unified"
+                )
+                st.plotly_chart(fig_port_mc, use_container_width=True)
+                st.info(f"Con un multiplicador de estrés de {vol_mult}x, el VaR 95% indica que en el 95% de los escenarios anuales la pérdida no superará **${res_mc_lab['var_95_dollar']:,.2f} USD**.")
+        else:
+            st.latex(r"dy_t = \theta (\mu - y_t) dt + \sigma dW_t, \quad t_{1/2} = \frac{\ln(2)}{\theta}")
+            st.write("Simulación estocástica de trayectorias que experimentan reversión a la media. Permite determinar científicamente la duración óptima de un trade antes de su decaimiento.")
+            
+            col_ou1, col_ou2 = st.columns([1, 2])
+            with col_ou1:
+                st.markdown("#### Parámetros Estocásticos")
+                theta_sim = st.slider("Velocidad de Reversión (θ):", 0.5, 15.0, 4.0, 0.5, key="sld_th_ou_lab")
+                mu_sim = st.slider("Nivel de Equilibrio (μ $):", 50.0, 200.0, 100.0, 5.0, key="sld_mu_ou_lab")
+                y0_sim = st.slider("Precio Inicial Desviado (y0 $):", 50.0, 200.0, 125.0, 5.0, key="sld_y0_ou_lab")
+                sigma_sim = st.slider("Volatilidad de Difusión (σ):", 5.0, 50.0, 15.0, 2.5, key="sld_sig_ou_lab")
+                n_paths = st.slider("Número de Trayectorias Monte Carlo:", 5, 30, 12, key="sld_np_ou_lab")
+                n_days = st.slider("Horizonte de Simulación (Días):", 15, 90, 45, key="sld_nd_ou_lab")
+                
+                dt_day = 1.0 / 252.0
+                half_life_days = np.log(2.0) / (theta_sim * dt_day)
+                half_life_days = float(np.clip(half_life_days, 1.0, n_days))
+                
+                st.metric("Semivida Analítica (t₁/₂)", f"{half_life_days:.1f} días de mercado")
+                st.caption("Tiempo estadístico esperado para que el 50% de la desviación (|y0 - μ|) sea absorbida.")
+                
+            with col_ou2:
+                np.random.seed(42)
+                dt = 1.0 / 252.0
+                paths = np.zeros((n_days, n_paths))
+                paths[0] = y0_sim
+                
+                for t in range(1, n_days):
+                    dW = np.random.normal(0, np.sqrt(dt), n_paths)
+                    paths[t] = paths[t-1] + theta_sim * (mu_sim - paths[t-1]) * dt + sigma_sim * dW
+                    
+                fig_ou = go.Figure()
+                days_x = np.arange(n_days)
+                for p in range(n_paths):
+                    fig_ou.add_trace(go.Scatter(
+                        x=days_x, y=paths[:, p], mode='lines',
+                        line=dict(width=1), opacity=0.4, showlegend=False
+                    ))
+                    
+                mean_path = np.mean(paths, axis=1)
+                fig_ou.add_trace(go.Scatter(
+                    x=days_x, y=mean_path, mode='lines', name='Trayectoria Media Simulada',
+                    line=dict(color='#00E676', width=3)
+                ))
+                
+                fig_ou.add_hline(
+                    y=mu_sim, line_dash="dash", line_color="#FFD600",
+                    annotation_text=f"Equilibrio a Largo Plazo μ (${mu_sim:.1f})",
+                    annotation_position="top right"
+                )
+                
+                if half_life_days <= n_days:
+                    fig_ou.add_vline(
+                        x=half_life_days, line_dash="dot", line_color="#FF5252",
+                        annotation_text=f"Maduración t₁/₂ ({half_life_days:.1f}d)",
+                        annotation_position="bottom right"
+                    )
+                    
+                fig_ou.update_layout(
+                    title="Simulación Monte Carlo de Reversión a la Media (Proceso O-U)",
+                    xaxis_title="Días de Mercado Transcurridos", yaxis_title="Precio del Activo ($ USD)",
+                    height=380, margin=dict(l=20, r=20, t=40, b=20)
+                )
+                st.plotly_chart(fig_ou, use_container_width=True)
+                st.info("Las posiciones cuantitativas de arbitraje o reversión deben cerrarse cerca de la **semivida $t_{1/2}$**, evitando dejar capital inmovilizado cuando la velocidad de convergencia se ralentiza asintóticamente.")
 
 # Footer institucional
 st.markdown("---")
