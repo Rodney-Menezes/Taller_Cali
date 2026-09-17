@@ -703,6 +703,44 @@ with tab_signals:
     if use_deep_learning and asset_inspect in dl_results:
         agent_data = dl_results[asset_inspect]
         
+        # Datos del activo seleccionado en la tabla activa
+        row_asset = active_signals_df[active_signals_df['Activo'] == asset_inspect].iloc[0] if 'Activo' in active_signals_df.columns and asset_inspect in active_signals_df['Activo'].values else None
+        
+        sig_name = agent_data['signal']
+        sig_color = "#00E676" if sig_name == "LONG" else ("#FF5252" if sig_name == "SHORT" else "#B0BEC5")
+        sig_badge = "🟢 COMPRAR EN LARGO (LONG)" if sig_name == "LONG" else ("🔴 VENDER EN CORTO (SHORT)" if sig_name == "SHORT" else "⚪ NEUTRAL / MANTENER (CASH)")
+        
+        probs = agent_data.get('probabilities', [0.33, 0.33, 0.34])
+        p_short = probs[0] * 100.0
+        p_neutral = probs[1] * 100.0
+        p_long = probs[2] * 100.0
+        
+        mat_days = row_asset['Maduración Sugerida (Días)'] if row_asset is not None else 10
+        sl_val = row_asset['Stop-Loss Dinámico ($)'] if row_asset is not None else '-'
+        tp_val = row_asset['Take-Profit Sugerido ($)'] if row_asset is not None else '-'
+        
+        st.markdown(f"""
+        <div style="background-color: #1E2638; border: 1px solid #2D3748; border-left: 6px solid {sig_color}; padding: 14px 18px; border-radius: 8px; margin-bottom: 18px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                <div>
+                    <span style="font-size: 1.15rem; font-weight: bold; color: #FFFFFF;">Veredicto Deep Learning ({asset_inspect}): </span>
+                    <span style="font-size: 1.15rem; font-weight: bold; color: {sig_color};">{sig_badge}</span>
+                </div>
+                <div style="color: #90A4AE; font-size: 0.95rem;">
+                    Confianza Softmax: <strong>{agent_data['confidence']:.1f}%</strong> | Maduración: <strong>{mat_days} días de mercado</strong>
+                </div>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.88rem; color: #ECEFF1; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;">
+                <strong>Distribución de Probabilidad Softmax:</strong> &nbsp;
+                🔴 Short: <strong>{p_short:.1f}%</strong> &nbsp;|&nbsp; 
+                ⚪ Neutral: <strong>{p_neutral:.1f}%</strong> &nbsp;|&nbsp; 
+                🟢 Long: <strong>{p_long:.1f}%</strong> &nbsp;&nbsp;&bull;&nbsp;&nbsp;
+                Stop-Loss Dinámico: <strong style="color: #FF5252;">${sl_val}</strong> &nbsp;|&nbsp;
+                Take-Profit: <strong style="color: #00E676;">${tp_val}</strong>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
         col_met1, col_met2, col_met3, col_met4 = st.columns(4)
         col_met1.metric("Precisión Out-of-Sample (Val Accuracy)", f"{agent_data['val_acc']:.1f}%")
         col_met2.metric("Épocas de Entrenamiento", f"{agent_data['epochs_trained']}")
@@ -710,9 +748,7 @@ with tab_signals:
         col_met4.metric("Muestras de Testeo", f"{agent_data['num_val_samples']} secuencias")
         
         col_dl_plot1, col_dl_plot2 = st.columns(2)
-        
         with col_dl_plot1:
-            # Curva de Pérdida real de PyTorch por Época
             loss_curve = agent_data['train_loss_history']
             fig_loss = go.Figure()
             fig_loss.add_trace(go.Scatter(
@@ -723,13 +759,12 @@ with tab_signals:
             fig_loss.update_layout(
                 title=f"Curva de Pérdida en Entrenamiento PyTorch ({asset_inspect})",
                 xaxis_title="Época de Entrenamiento (Epoch)", yaxis_title="Loss de Optimización",
-                height=320, margin=dict(l=20, r=20, t=40, b=20)
+                height=300, margin=dict(l=20, r=20, t=40, b=20)
             )
             st.plotly_chart(fig_loss, use_container_width=True)
             st.caption("Esta curva demuestra el **aprendizaje empírico real**: la pérdida desciende a medida que el optimizador AdamW ajusta los pesos de las matrices LSTM y de Atención.")
             
         with col_dl_plot2:
-            # Pesos de Atención Temporal (Attention Weights)
             attn_w = agent_data['attention_weights']
             days_labels = [f"t-{len(attn_w)-i}" for i in range(len(attn_w))]
             fig_attn = px.bar(
@@ -738,32 +773,63 @@ with tab_signals:
                 labels={'x': 'Día en la Ventana Temporal de Entrada', 'y': 'Peso de Atención (Softmax α_t)'},
                 color=attn_w, color_continuous_scale="Viridis"
             )
-            fig_attn.update_layout(height=320, margin=dict(l=20, r=20, t=40, b=20), showlegend=False)
+            fig_attn.update_layout(height=300, margin=dict(l=20, r=20, t=40, b=20), showlegend=False)
             st.plotly_chart(fig_attn, use_container_width=True)
             st.caption("Los pesos de atención revelan **qué días específicos del pasado** la red neuronal consideró matemáticamente más determinantes para predecir la dirección futura.")
     else:
-        col_sig1, col_sig2 = st.columns(2)
-        with col_sig1:
-            p_asset = prices_df[asset_inspect].dropna()
-            fd_asset = apply_frac_diff(np.log(p_asset), d=0.40)
-            fig_fd = go.Figure()
-            fig_fd.add_trace(go.Scatter(x=fd_asset.index, y=fd_asset.values, name="FracDiff (d=0.40)", line=dict(color="#FFD600", width=1.5)))
-            fig_fd.update_layout(
-                title=f"Serie Estacionaria con Memoria Conservada ({asset_inspect})",
-                xaxis_title="Fecha", yaxis_title="Valor Fraccionario",
-                height=320, margin=dict(l=20, r=20, t=40, b=20)
-            )
-            st.plotly_chart(fig_fd, use_container_width=True)
-            
-        with col_sig2:
-            fig_mat = px.bar(
-                active_signals_df, x="Activo", y="Maduración Sugerida (Días)",
-                color="Señal AI",
-                color_discrete_map={"LONG": "#00E676", "SHORT": "#FF5252", "NEUTRAL": "#B0BEC5"},
-                title="Horizonte Óptimo de Maduración (Semivida O-U en Días de Mercado)"
-            )
-            fig_mat.update_layout(height=320, margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig_mat, use_container_width=True)
+        # Modo Machine Learning (Random Forest)
+        row_asset = active_signals_df[active_signals_df['Activo'] == asset_inspect].iloc[0] if 'Activo' in active_signals_df.columns and asset_inspect in active_signals_df['Activo'].values else None
+        sig_val = row_asset['Señal AI'] if row_asset is not None else "NEUTRAL"
+        sig_color = "#00E676" if sig_val == "LONG" else ("#FF5252" if sig_val == "SHORT" else "#B0BEC5")
+        sig_badge = "🟢 COMPRAR EN LARGO (LONG)" if sig_val == "LONG" else ("🔴 VENDER EN CORTO (SHORT)" if sig_val == "SHORT" else "⚪ NEUTRAL / MANTENER (CASH)")
+        
+        mat_days = row_asset['Maduración Sugerida (Días)'] if row_asset is not None else 10
+        sl_val = row_asset['Stop-Loss Dinámico ($)'] if row_asset is not None else '-'
+        tp_val = row_asset['Take-Profit Sugerido ($)'] if row_asset is not None else '-'
+        
+        st.markdown(f"""
+        <div style="background-color: #1E2638; border: 1px solid #2D3748; border-left: 6px solid {sig_color}; padding: 14px 18px; border-radius: 8px; margin-bottom: 18px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                <div>
+                    <span style="font-size: 1.15rem; font-weight: bold; color: #FFFFFF;">Veredicto Machine Learning ({asset_inspect}): </span>
+                    <span style="font-size: 1.15rem; font-weight: bold; color: {sig_color};">{sig_badge}</span>
+                </div>
+                <div style="color: #90A4AE; font-size: 0.95rem;">
+                    Maduración Óptima (Semivida O-U): <strong>{mat_days} días de mercado</strong>
+                </div>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.88rem; color: #ECEFF1; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;">
+                Stop-Loss Dinámico: <strong style="color: #FF5252;">${sl_val}</strong> &nbsp;|&nbsp;
+                Take-Profit: <strong style="color: #00E676;">${tp_val}</strong>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        p_asset = prices_df[asset_inspect].dropna()
+        fd_asset = apply_frac_diff(np.log(p_asset), d=0.40)
+        fig_fd = go.Figure()
+        fig_fd.add_trace(go.Scatter(x=fd_asset.index, y=fd_asset.values, name="FracDiff (d=0.40)", line=dict(color="#FFD600", width=1.5)))
+        fig_fd.update_layout(
+            title=f"Serie Estacionaria con Memoria Conservada ({asset_inspect})",
+            xaxis_title="Fecha", yaxis_title="Valor Fraccionario",
+            height=300, margin=dict(l=20, r=20, t=40, b=20)
+        )
+        st.plotly_chart(fig_fd, use_container_width=True)
+
+    # -------------------------------------------------------------
+    # MAPA GLOBAL DE RECOMENDACIONES Y HORIZONTE DE MADURACIÓN (AMBOS MODELOS)
+    # -------------------------------------------------------------
+    st.markdown("#### 📊 Mapa de Recomendaciones y Horizonte de Maduración (Todos los Activos)")
+    fig_mat = px.bar(
+        active_signals_df, x="Activo", y="Maduración Sugerida (Días)",
+        color="Señal AI",
+        color_discrete_map={"LONG": "#00E676", "SHORT": "#FF5252", "NEUTRAL": "#B0BEC5"},
+        title=f"Horizonte Óptimo de Maduración por Activo ({'PyTorch BiLSTM-Attention' if use_deep_learning else 'Random Forest'})",
+        text="Señal AI"
+    )
+    fig_mat.update_traces(textposition='outside')
+    fig_mat.update_layout(height=340, margin=dict(l=20, r=20, t=40, b=20))
+    st.plotly_chart(fig_mat, use_container_width=True)
             
     st.markdown("""
     > [!TIP]
