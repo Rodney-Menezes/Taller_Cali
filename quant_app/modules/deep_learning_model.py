@@ -1,9 +1,17 @@
+import gc
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
+
+# Restricción preventiva de hilos en CPU para evitar sobreconsumo de memoria en entornos Cloud/Docker
+if torch.get_num_threads() > 2:
+    try:
+        torch.set_num_threads(2)
+    except Exception:
+        pass
 
 # Fijar semillas para reproducibilidad
 torch.manual_seed(42)
@@ -32,8 +40,11 @@ class BiLSTMAttentionClassifier(nn.Module):
     """
     Red Neuronal Recurrente Profunda Bi-direccional con Mecanismo de Atención
     para Clasificación de Señales Direccionales (Long / Neutral / Short).
+    
+    Arquitectura ultraligera optimizada para mínima huella en memoria RAM
+    y máxima velocidad de cómputo en CPU sin sacrificar el modelado temporal.
     """
-    def __init__(self, input_dim=4, hidden_dim=48, num_layers=2, num_classes=3, dropout=0.25):
+    def __init__(self, input_dim=4, hidden_dim=16, num_layers=1, num_classes=3, dropout=0.15):
         super(BiLSTMAttentionClassifier, self).__init__()
         self.hidden_dim = hidden_dim
         self.lstm = nn.LSTM(
@@ -46,10 +57,10 @@ class BiLSTMAttentionClassifier(nn.Module):
         )
         self.attention = TemporalAttention(hidden_dim * 2) # * 2 por bidireccional
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim * 2, 32),
+            nn.Linear(hidden_dim * 2, 16),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(32, num_classes)
+            nn.Linear(16, num_classes)
         )
 
     def forward(self, x):
@@ -59,7 +70,7 @@ class BiLSTMAttentionClassifier(nn.Module):
         logits = self.classifier(context) # [batch_size, num_classes]
         return logits, attn_weights
 
-def prepare_multivariate_sequences(p_series, r_series, frac_diff_series, seq_len=15, forward_horizon=5):
+def prepare_multivariate_sequences(p_series, r_series, frac_diff_series, seq_len=10, forward_horizon=5):
     """
     Construye tensores multivariados de entrenamiento:
     Features: [Diferenciación Fraccionaria, Retornos, Volatilidad 10d, Z-Score Precio]
@@ -110,14 +121,14 @@ def prepare_multivariate_sequences(p_series, r_series, frac_diff_series, seq_len
     
     return X, y, feat_matrix[-seq_len:]
 
-def train_deep_learning_agent(p_series, r_series, frac_diff_series, epochs=25, seq_len=15):
+def train_deep_learning_agent(p_series, r_series, frac_diff_series, epochs=10, seq_len=10, hidden_dim=16, num_layers=1, batch_size=32, lr=0.008):
     """
     Entrena de forma real una red neuronal profunda BiLSTM con atención en PyTorch
-    para un activo específico. Devuelve métricas reales de entrenamiento y predicción.
+    optimizada para bajo consumo de memoria RAM y alta velocidad en CPU.
     """
     X, y, latest_window = prepare_multivariate_sequences(p_series, r_series, frac_diff_series, seq_len=seq_len)
     
-    if len(X) < 40:
+    if len(X) < 30:
         # Fallback conservador si hay pocas muestras
         return {
             'signal': 'NEUTRAL',
@@ -125,21 +136,33 @@ def train_deep_learning_agent(p_series, r_series, frac_diff_series, epochs=25, s
             'probabilities': [0.25, 0.50, 0.25],
             'train_loss_history': [0.95, 0.85, 0.78],
             'val_acc': 55.0,
-            'attention_weights': np.ones(seq_len) / seq_len,
-            'epochs_trained': 0
+            'attention_weights': (np.ones(seq_len) / seq_len).tolist(),
+            'epochs_trained': 0,
+            'num_train_samples': len(X),
+            'num_val_samples': 0
         }
         
     # Split train/val temporal (80% pasado para entrenar, 20% más reciente para validar)
     split_idx = int(len(X) * 0.80)
-    X_train, y_train = X[:split_idx], y[:split_idx]
-    X_val, y_val = X[split_idx:], y[split_idx:]
+    X_train_t = torch.tensor(X[:split_idx], dtype=torch.float32)
+    y_train_t = torch.tensor(y[:split_idx], dtype=torch.int64)
+    X_val_t = torch.tensor(X[split_idx:], dtype=torch.float32)
+    y_val = y[split_idx:]
     
-    train_dataset = TensorDataset(torch.tensor(X_train), torch.tensor(y_train))
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    # Usar batch_size optimizado (32) para reducir el número de actualizaciones por época
+    eff_batch = min(batch_size, max(8, len(X_train_t)))
+    train_dataset = TensorDataset(X_train_t, y_train_t)
+    train_loader = DataLoader(train_dataset, batch_size=eff_batch, shuffle=True)
     
-    model = BiLSTMAttentionClassifier(input_dim=4, hidden_dim=32, num_layers=2, num_classes=3, dropout=0.2)
+    model = BiLSTMAttentionClassifier(
+        input_dim=4,
+        hidden_dim=hidden_dim,
+        num_layers=num_layers,
+        num_classes=3,
+        dropout=0.15
+    )
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=0.005, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     
     loss_history = []
     model.train()
@@ -147,34 +170,41 @@ def train_deep_learning_agent(p_series, r_series, frac_diff_series, epochs=25, s
     for epoch in range(epochs):
         epoch_loss = 0.0
         for batch_x, batch_y in train_loader:
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True) # set_to_none=True libera memoria de gradientes inmediatamente
             logits, _ = model(batch_x)
             loss = criterion(logits, batch_y)
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item() * len(batch_y)
             
-        epoch_loss /= len(X_train)
+        epoch_loss /= len(X_train_t)
         loss_history.append(float(epoch_loss))
         
-    # Evaluación Out-Of-Sample en validación
+    # Evaluación Out-Of-Sample en validación usando inference_mode (cero overhead de grafos)
     model.eval()
-    with torch.no_grad():
-        val_logits, _ = model(torch.tensor(X_val))
-        val_preds = torch.argmax(val_logits, dim=-1).numpy()
-        val_acc = float(np.mean(val_preds == y_val) * 100.0)
+    with torch.inference_mode():
+        val_logits, _ = model(X_val_t)
+        val_preds = torch.argmax(val_logits, dim=-1).cpu().numpy()
+        val_acc = float(np.mean(val_preds == y_val) * 100.0) if len(y_val) > 0 else 50.0
         
         # Inferencia en la ventana actual más reciente
         curr_tensor = torch.tensor(latest_window.reshape(1, seq_len, 4), dtype=torch.float32)
         latest_logits, attn_weights = model(curr_tensor)
-        probs = torch.softmax(latest_logits, dim=-1).squeeze(0).numpy()
-        attn_vec = attn_weights.squeeze(0).numpy()
+        probs = torch.softmax(latest_logits, dim=-1).squeeze(0).cpu().numpy().tolist()
+        attn_vec = attn_weights.squeeze(0).cpu().numpy().tolist()
         
     pred_class = int(np.argmax(probs))
     conf = float(probs[pred_class] * 100.0)
     
     class_map = {0: 'SHORT', 1: 'NEUTRAL', 2: 'LONG'}
     signal = class_map[pred_class]
+    
+    num_tr = len(X_train_t)
+    num_val = len(y_val)
+    
+    # Liberación explícita de referencias y recolección de basura
+    del model, optimizer, train_loader, train_dataset, X_train_t, y_train_t, X_val_t
+    gc.collect()
     
     return {
         'signal': signal,
@@ -184,6 +214,6 @@ def train_deep_learning_agent(p_series, r_series, frac_diff_series, epochs=25, s
         'val_acc': val_acc,
         'attention_weights': attn_vec,
         'epochs_trained': epochs,
-        'num_train_samples': len(X_train),
-        'num_val_samples': len(X_val)
+        'num_train_samples': num_tr,
+        'num_val_samples': num_val
     }
