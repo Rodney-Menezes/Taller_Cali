@@ -155,6 +155,20 @@ with st.sidebar:
     
     st.markdown("---")
     run_button = st.button("🚀 Ejecutar Optimización Cuantitativa", type="primary", use_container_width=True)
+    
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style='font-size: 0.80rem; color: #B0BEC5; line-height: 1.45; padding: 2px 0;'>
+            👤 <strong>Autoría</strong>: Rodney Menezes<br>
+            🏛️ <em>Taller de Finanzas Cuantitativas</em><br>
+            <strong>Pontificia Univ. Javeriana de Cali</strong><br>
+            🎓 Basado en su trayectoria y teorías/literatura del Máster en Data Science, Big Data & AI (Univ. Complutense de Madrid).<br>
+            🌐 <a href='https://sites.google.com/view/rodney-menezes' target='_blank' style='color: #00E676; text-decoration: underline;'>Rodney Menezes en Google Sites</a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # Header Principal
 st.markdown('<div class="main-title">📈 AI Quantitative Investment & Portfolio Platform</div>', unsafe_allow_html=True)
@@ -1525,14 +1539,17 @@ st.markdown(
     <div style='text-align: center; color: #9E9E9E; font-size: 0.88rem; line-height: 1.6; padding: 12px 0;'>
         <div>
             <strong>AI Quantitative Investment Platform</strong> &bull; 
-            Desarrollado para el <strong>Taller de Finanzas Cuantitativas</strong> en la <strong>Pontificia Universidad Javeriana de Cali - Colombia</strong> &bull; 
+            Desarrollado con fines educativos para el <strong>Taller de Finanzas Cuantitativas</strong> en la <strong>Pontificia Universidad Javeriana de Cali - Colombia</strong> &bull; 
             Datos provistos vía <strong>Yahoo Finance API</strong> &bull; 
             Modelos ejecutados en <strong>PyTorch / Scikit-Learn</strong>
         </div>
         <div style='font-size: 0.80rem; color: #78909C; margin-top: 8px; border-top: 1px solid #2D3748; padding-top: 8px;'>
-            ⚖️ <strong>Aviso de Licencia de Propiedad Intelectual</strong>: Todos los derechos reservados &copy; 2026 <strong>Rodney Menezes</strong>. 
-            El diseño metodológico, algoritmos cuantitativos, modelos econométricos, arquitecturas de Deep Learning (BiLSTM con Atención) e implementaciones de código de esta plataforma 
-            son propiedad intelectual de <strong>Rodney Menezes</strong>. Desarrollado con fines académicos y didácticos para la <strong>Pontificia Universidad Javeriana de Cali - Colombia</strong>. Queda prohibida su reproducción total o parcial, distribución o explotación comercial no autorizada sin consentimiento expreso por escrito.
+            ⚖️ <strong>Aviso de Autoría y Licencia de Propiedad Intelectual</strong>: Todos los derechos reservados &copy; 2026 <strong>Rodney Menezes</strong>.<br>
+            Plataforma desarrollada para propósitos educativos y académicos en la <strong>Pontificia Universidad Javeriana de Cali</strong>. 
+            El diseño conceptual, modelos econométricos, algoritmos cuantitativos y arquitecturas de Deep Learning son de autoría de <strong>Rodney Menezes</strong>, 
+            basados en código desarrollado a lo largo de su formación profesional y académica, y en las teorías financieras y literatura técnica del 
+            <strong>Máster en Data Science, Big Data & AI de la Universidad Complutense de Madrid</strong>.<br>
+            🌐 Más información y recursos académicos: <a href='https://sites.google.com/view/rodney-menezes' target='_blank' style='color: #90CAF9; text-decoration: underline;'>Rodney Menezes - Google Sites</a>.
         </div>
     </div>
     """,

@@ -2,8 +2,10 @@
 
 Plataforma analítica e interactiva basada en **Streamlit**, **Docker**, **Yahoo Finance (yfinance)** y modelos avanzados de **Machine Learning, Deep Learning y Finanzas Cuantitativas**.
 
-Desarrollada para el **Taller de Finanzas Cuantitativas** en la **Pontificia Universidad Javeriana de Cali - Colombia**.  
-**Autoría & Propiedad Intelectual**: Rodney Menezes © 2026. Todos los derechos reservados.
+* **Autoría & Propiedad Intelectual**: Rodney Menezes © 2026. Todos los derechos reservados.
+* **Propósito & Entidad**: Desarrollada con fines educativos para el **Taller de Finanzas Cuantitativas** en la **Pontificia Universidad Javeriana de Cali - Colombia**.
+* **Fundamento Teórico y Metodológico**: Basada en código desarrollado a lo largo de la trayectoria profesional y formación académica del autor, sustentado en las teorías financieras y literatura técnica utilizadas en el **Máster en Data Science, Big Data & AI de la Universidad Complutense de Madrid**.
+* **Más Información y Recursos**: Visite el sitio académico de [Rodney Menezes](https://sites.google.com/view/rodney-menezes).
 
 ---
 
@@ -141,6 +143,8 @@ En entornos Windows con Python 3.10:
 
 ## 🏛️ Afiliación Institucional & Licencia de Propiedad Intelectual
 
-* **Institución Académica**: Desarrollado para el **Taller de Finanzas Cuantitativas** en la **Pontificia Universidad Javeriana de Cali - Colombia**.
-* **Autoría & Propiedad Intelectual**: Todos los derechos reservados &copy; 2026 **Rodney Menezes**.
-* **Aviso Legal**: El diseño conceptual, arquitectura cuantitativa, algoritmos econométricos, modelos de Deep Learning e implementaciones de código de esta plataforma son propiedad intelectual de Rodney Menezes. Su uso está destinado a propósitos educativos y de investigación para la Pontificia Universidad Javeriana de Cali. Queda prohibida su copia, distribución o comercialización sin autorización expresa por escrito.
+* **Autoría & Titularidad de Derechos**: Diseñado y desarrollado íntegramente por **Rodney Menezes** (&copy; 2026).
+* **Propósito Académico**: Desarrollado con fines exclusivamente educativos y pedagógicos para el **Taller de Finanzas Cuantitativas** de la **Pontificia Universidad Javeriana de Cali - Colombia**.
+* **Origen y Fundamento Teórico**: Esta plataforma se basa en código e implementaciones cuantitativas desarrolladas a lo largo de la formación profesional y trayectoria académica del autor, integrando los modelos econométricos, teorías financieras y literatura técnica especializada del **Máster en Data Science, Big Data & AI de la Universidad Complutense de Madrid (España)**.
+* **Sitio Web Académico y Recursos**: Para consultar más detalles metodológicos, publicaciones y proyectos adicionales, acceda al portal de [Rodney Menezes](https://sites.google.com/view/rodney-menezes).
+* **Aviso Legal**: La arquitectura conceptual, algoritmos cuantitativos, modelos de Deep Learning (BiLSTM con auto-atención), simulaciones estocásticas y código de soporte son propiedad intelectual de Rodney Menezes. Queda prohibida su reproducción, distribución o comercialización sin autorización expresa por escrito.
