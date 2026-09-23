@@ -1,177 +1,146 @@
-# DeepLearningBookExamples
+# 🏛️ Plataforma Institucional de Finanzas Cuantitativas & Gestión de Inversiones
 
-Practical deep learning notebooks and utilities, organized by chapter.  
-This repository is designed for reproducible execution with Docker and Docker Compose, with optional GPU acceleration.
+Plataforma analítica e interactiva basada en **Streamlit**, **Docker**, **Yahoo Finance (yfinance)** y modelos avanzados de **Machine Learning, Deep Learning y Finanzas Cuantitativas**.
 
-This is the companion repository for *Deep Learning in Quantitative Finance* (Green, 2026):  
-https://www.wiley.com/en-ae/Deep+Learning+in+Quantitative+Finance-p-9781119685241
-
-## Stable Release
-
-The latest stable version is **v1.0.0**.
-
-👉 Checkout the release:
-git checkout v1.0.0
-
-👉 Or download from:
-https://github.com/greandrew/DeepLearningBookExamples/releases
-
-## Repository layout
-
-Each chapter folder contains notebooks plus a chapter-local container setup:
-
-- `Dockerfile`
-- `docker-compose.yml`
-- notebooks (`*.ipynb`) and helper scripts (`*.py`)
-
-Examples:
-
-- [Chap10RL](Chap10RL)
-- [Chap11DV](Chap11DV)
-- [Chap12PDE](Chap12PDE)
-- [Chap13MC](Chap13MC)
-- [Chap14SR](Chap14SR)
-- [Chap15Vol](Chap15Vol)
-- [Chap16Cal](Chap16Cal)
-- [Chap17XVA](Chap17XVA)
-- [Chap18MD](Chap18MD)
-- [Chap19DH](Chap19DH)
+Desarrollada para el **Taller de Finanzas Cuantitativas** en la **Pontificia Universidad Javeriana de Cali - Colombia**.  
+**Autoría & Propiedad Intelectual**: Rodney Menezes © 2026. Todos los derechos reservados.
 
 ---
 
-## Prerequisites
+## 🏛️ Características y Arquitectura del Sistema
 
-### Required
+La plataforma integra ocho (8) paradigmas y modelos analíticos de frontera financiera:
 
-- Git
-- Docker Engine
-- Docker Compose (plugin preferred)
+1. **Datos de Mercado Gratuitos en Tiempo Real (Yahoo Finance)**:
+   - Ingesta automática mediante `yfinance` para cualquier ticker (`AAPL`, `NVDA`, `IWM`, `TLT`, `BND`, etc.).
+   - Modelado de microestructura: estimación de spreads bid-ask y volatilidad local.
+   - Generador sintético GBM calibrado de contingencia autónoma si la API experimenta limitaciones de tasa.
 
-### Optional (for GPU)
+2. **Aversión al Riesgo de Arrow-Pratt ($\gamma \in [1.0, 10.0]$)**:
+   - Cuestionario interactivo psicométrico y financiero de 5 dimensiones.
+   - Calibración continua del coeficiente relativo de aversión al riesgo $\gamma$.
 
-- NVIDIA GPU
-- NVIDIA driver
-- NVIDIA Container Toolkit
+3. **Optimización Multi-Paradigma de Portafolios**:
+   - **Markowitz con Ledoit-Wolf**: Maximización de utilidad cuadrática con contracción analítica de covarianza y asignación discreta exacta en títulos enteros de acciones (\$ USD).
+   - **Hierarchical Risk Parity (HRP)**: Machine Learning no supervisado para asignación óptima de capital. Agrupa activos mediante clustering jerárquico (*single linkage*), cuasi-diagonalización y bisección recursiva con dendrograma interactivo.
+   - **Black-Litterman con Vistas de Deep Learning (IA)**: Fusión bayesiana entre el equilibrio de mercado CAPM ($\Pi$) y vistas direccionales probabilísticas extraídas de la Red Neuronal BiLSTM ($P, Q, \Omega$).
+   - **Simulación Monte Carlo Multivariada**: Proyección estocástica del valor de todo el portafolio mediante descomposición de Cholesky $\Sigma_{\text{LW}} = L L^T$.
+
+4. **Backtesting Histórico Walk-Forward & Underwater Plot**:
+   - Simulación histórica de la estrategia frente al Benchmark (`SPY` o 60/40).
+   - Métricas cuantitativas avanzadas: CAGR, Volatilidad anualizada, **Ratio de Sharpe**, **Ratio de Sortino** (penalización asimétrica de pérdidas) y **Ratio de Calmar** (velocidad de recuperación de drawdown).
+   - Gráfico interactivo **Underwater Drawdown** para evaluar la severidad y duración de caídas históricas.
+
+5. **Stress-Testing de Crisis Macroeconómicas & Regímenes de Mercado (GMM)**:
+   - Simulación de impacto patrimonial (\$ USD) ante 4 eventos de cola sistémicos: *Subprime 2008*, *COVID-19 2020*, *FED Rate Hikes 2022* y *AI Tech Rally 2023–2024*.
+   - Auditoría desglosada activo por activo frente a una cartera 60/40.
+   - **Detección No Supervisada de Regímenes (Gaussian Mixture Models)**: Clasificación bayesiana en tiempo real de estados de mercado (*Bull*, *Lateral*, *Bear*) y recomendaciones dinámicas de ajuste de riesgo.
+
+6. **Dinámica Analítica de Renta Fija (Bonds)**:
+   - Incorporación directa de ETFs de renta fija cotizados en Yahoo Finance (`BND`, `TLT`, `SHY`, `AGG`, etc.).
+   - Duración Modificada Efectiva ($D^*$), Convexidad ($C$) y DV01.
+   - Simulación interactiva de Shocks de Rendimiento ($\Delta y \in [-400, +400]$ bps) con comparación entre re-pricing exacto y aproximaciones de Taylor de primer y segundo orden.
+
+7. **Señales Deep Learning & Maduración de Posición**:
+   - Red Neuronal Recurrente BiLSTM con Auto-Atención Temporal (PyTorch) entrenada sobre precios, retornos y memoria fraccionaria ($d^*=0.40$).
+   - Señales direccionales (*LONG*, *SHORT*, *NEUTRAL*), Stop-Loss/Take-Profit dinámicos y semivida de reversión a la media basada en el proceso estocástico de Ornstein-Uhlenbeck.
+
+8. **Laboratorio Didáctico de Modelos Cuantitativos**:
+   - Experimentos interactivos con fórmulas matemáticas y simuladores dinámicos en vivo (Ledoit-Wolf, Frontera Eficiente, Convexidad de Bonos, Memoria Fraccionaria, Procesos Monte Carlo).
 
 ---
 
-## Quick start (recommended: Docker Compose v2)
+## 📁 Estructura del Repositorio
 
-1. Clone the repository.
-2. Move into the chapter you want to run.
-3. Build and start Jupyter.
+```
+Taller_Cali/
+├── Dockerfile                  # Contenedor raíz optimizado para despliegue en Railway / Docker
+├── railway.json                # Configuración de despliegue continuo en Railway
+├── LICENSE                     # Licencia de uso
+├── README.md                   # Documentación principal del taller
+├── graficos/                   # Directorio de recursos visuales
+└── quant_app/                  # Aplicación cuantitativa completa
+    ├── Dockerfile              # Dockerfile local de la app
+    ├── docker-compose.yml      # Orquestación de servicio (puerto 8501)
+    ├── requirements.txt        # Dependencias fijadas (Streamlit, Plotly, PyTorch, SciPy, etc.)
+    ├── app.py                  # Interfaz web principal de Streamlit
+    ├── README.md               # Documentación interna de quant_app
+    └── modules/
+        ├── __init__.py
+        ├── data_loader.py          # Extractor de cotizaciones y microestructura
+        ├── risk_profiler.py        # Estimador psicométrico de aversión al riesgo gamma
+        ├── portfolio_optimizer.py  # Optimizador Markowitz con Ledoit-Wolf y fricciones
+        ├── hrp_optimizer.py        # Hierarchical Risk Parity (HRP) y Dendrograma
+        ├── backtester.py           # Backtesting walk-forward, Sortino, Calmar y Underwater
+        ├── black_litterman.py      # Black-Litterman impulsado por vistas de IA (BiLSTM)
+        ├── stress_testing.py       # Stress-testing de 4 crisis sistémicas y desglose USD
+        ├── market_regimes.py       # Regímenes de mercado GMM no supervisados
+        ├── fixed_income.py         # Análisis analítico de duración, convexidad y shocks
+        ├── portfolio_monte_carlo.py# Simulación Monte Carlo multivariada (Cholesky)
+        ├── deep_learning_model.py  # Red Neuronal BiLSTM con Atención Temporal (PyTorch)
+        └── timing_signals.py       # Señales de ML fraccionario y maduración Ornstein-Uhlenbeck
+```
+
+---
+
+## 🐳 Despliegue con Docker y Docker Compose
+
+### Opción 1: Desde la carpeta `Taller_Cali` (Despliegue General)
 
 ```bash
-git clone <your-fork-or-this-repo-url>
-cd DeepLearningBookExamples/Chap10RL
+docker build -t taller-cali-app .
+docker run -p 8501:8501 taller-cali-app
+```
+
+### Opción 2: Con Docker Compose (Recomendado para Desarrollo)
+
+Desde la subcarpeta `quant_app/`:
+
+```bash
+cd quant_app
 docker compose up --build
 ```
 
-Then open:
+La aplicación se compilará con `python:3.10-slim` y estará disponible en:
+👉 **`http://localhost:8501`**
 
-- http://localhost:8888
-
-To stop:
-
+Para detener el servicio:
 ```bash
 docker compose down
 ```
 
 ---
 
-## Using Docker Compose in this repo
+## 🚀 Despliegue en la Nube (Railway)
 
-Every chapter has its own [docker-compose.yml](Chap10RL/docker-compose.yml)-style config.
-
-Typical service behavior:
-
-- Builds image from local `Dockerfile`
-- Starts Jupyter Lab on port `8888`
-- Mounts the chapter directory into the container
-- Requests all NVIDIA GPUs (if available)
-
-### Important notes
-
-- Most chapter compose files map `8888:8888`, so run one chapter at a time unless you change host ports.
-- Some volume mounts use absolute host paths (for example under `~/Documents/...`). If your local path differs, update the `volumes` entry in that chapter’s compose file.
+El repositorio incluye la configuración de producción `railway.json` que orquesta la compilación del `Dockerfile` raíz y enlaza automáticamente la variable de entorno `$PORT` para servir la plataforma en la nube sin configuración manual adicional.
 
 ---
 
-## Docker Compose v1 vs v2 (what changed)
+## 💻 Ejecución Local (Sin Contenedores)
 
-You may see both command styles online:
-
-- **Compose v1 (legacy):** `docker-compose ...`
-- **Compose v2 (current):** `docker compose ...`
-
-### Key differences
-
-1. **Command name**
-	 - v1: standalone binary `docker-compose`
-	 - v2: Docker CLI plugin `docker compose`
-
-2. **Installation model**
-	 - v1: installed separately
-	 - v2: ships as a plugin with modern Docker installs
-
-3. **Lifecycle/support**
-	 - v1 is legacy/end-of-life in most setups
-	 - v2 is actively maintained and recommended
-
-4. **Compatibility**
-	 - Most `docker-compose.yml` files in this repo work in both.
-	 - Prefer v2 unless your environment only has v1.
-
-### Command mapping
-
-- `docker-compose up --build` → `docker compose up --build`
-- `docker-compose down` → `docker compose down`
-- `docker-compose logs -f` → `docker compose logs -f`
-
----
-
-## Common workflows
-
-### Run a different chapter
+Si prefiere ejecutarlo directamente en su entorno local con Python:
 
 ```bash
-cd Chap11DV
-docker compose up --build
+# 1. Acceder al directorio de la aplicación
+cd quant_app
+
+# 2. Instalar dependencias
+pip install -r requirements.txt
+
+# 3. Iniciar Streamlit
+streamlit run app.py
 ```
 
-### Run in background
-
-```bash
-docker compose up -d --build
-docker compose logs -f
-docker compose down
-```
-
-### Rebuild after dependency changes
-
-```bash
-docker compose build --no-cache
-docker compose up
+En entornos Windows con Python 3.10:
+```powershell
+& "C:\Users\ThinkPad\AppData\Local\Python\pythoncore-3.10-64\python.exe" -m streamlit run app.py
 ```
 
 ---
 
-## Troubleshooting
+## 🏛️ Afiliación Institucional & Licencia de Propiedad Intelectual
 
-- **`docker: 'compose' is not a docker command`**  
-	Install/enable Docker Compose v2 plugin, or use `docker-compose` if your system only has v1.
-
-- **Port 8888 already in use**  
-	Stop other Jupyter/compose services, or edit the chapter `ports` mapping (e.g. `8889:8888`).
-
-- **GPU not visible in container**  
-	Verify NVIDIA drivers + container toolkit installation, then restart Docker.
-
-- **Notebook files not visible**  
-	Check `volumes` paths in that chapter’s compose file and adjust to your local filesystem.
-
----
-
-## License
-
-See [LICENSE](LICENSE).
+* **Institución Académica**: Desarrollado para el **Taller de Finanzas Cuantitativas** en la **Pontificia Universidad Javeriana de Cali - Colombia**.
+* **Autoría & Propiedad Intelectual**: Todos los derechos reservados &copy; 2026 **Rodney Menezes**.
+* **Aviso Legal**: El diseño conceptual, arquitectura cuantitativa, algoritmos econométricos, modelos de Deep Learning e implementaciones de código de esta plataforma son propiedad intelectual de Rodney Menezes. Su uso está destinado a propósitos educativos y de investigación para la Pontificia Universidad Javeriana de Cali. Queda prohibida su copia, distribución o comercialización sin autorización expresa por escrito.

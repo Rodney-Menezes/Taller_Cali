@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 
 def get_quasi_diagonal(linkage_matrix):
     """
-    Algoritmo de seriación (quasi-diagonalización) de Marcos López de Prado.
+    Algoritmo de seriación (quasi-diagonalización) para paridad de riesgo jerárquica (HRP).
     Reordena los activos de forma que activos con correlaciones similares queden adyacentes.
     """
     link = linkage_matrix.astype(int)
@@ -137,7 +137,7 @@ def optimize_hrp_portfolio(returns_df, latest_prices=None, budget=10000.0, max_w
             labels=assets
         )
         fig_dendro.update_layout(
-            title="Dendrograma de Clustering Jerárquico de Activos (López de Prado)",
+            title="Dendrograma de Dependencia Jerárquica de Activos (HRP)",
             xaxis_title="Activos Agrupados por Similitud de Covarianza",
             yaxis_title="Distancia Métrica de Correlación d(i, j)",
             height=340,

@@ -382,7 +382,7 @@ with tab_port:
         max_weight_per_asset=max_weight_cap / 100.0
     )
     
-    # 2. Ejecutar Optimizador 2: Hierarchical Risk Parity (HRP) de Marcos López de Prado
+    # 2. Ejecutar Optimizador 2: Hierarchical Risk Parity (HRP)
     hrp_result = optimize_hrp_portfolio(
         returns_df=returns_df[selected_tickers],
         latest_prices=latest_prices,
@@ -530,7 +530,7 @@ with tab_port:
     st.plotly_chart(fig_multi, use_container_width=True)
     
     # Expansores de Diagnóstico Específico por Modelo
-    with st.expander("🧬 Ver Mecanismo Interno: Dendrograma de Clustering Jerárquico (HRP López de Prado)"):
+    with st.expander("🧬 Ver Mecanismo Interno: Dendrograma de Clustering Jerárquico (HRP)"):
         st.write("El algoritmo **Hierarchical Risk Parity (HRP)** agrupa los activos en un árbol de dependencias mediante enlace simple (*single linkage*) sobre la métrica de distancia $d_{i,j} = \\sqrt{\\frac{1}{2}(1 - \\rho_{i,j})}$. No invierte matrices de covarianza, lo que evita la inestabilidad de Markowitz.")
         if hrp_result['dendrogram_fig'] is not None:
             st.plotly_chart(hrp_result['dendrogram_fig'], use_container_width=True)
@@ -1301,7 +1301,7 @@ with tab_theory:
     # SUBTAB 4: DIFERENCIACIÓN FRACCIONARIA
     # -------------------------------------------------------------
     with subtab4:
-        st.markdown("### 🧬 Conservación de Memoria Histórica vs. Estacionariedad (López de Prado)")
+        st.markdown("### 🧬 Conservación de Memoria Histórica vs. Estacionariedad (Diferenciación Fraccionaria)")
         st.latex(r"(1 - L)^d = \sum_{k=0}^{\infty} (-1)^k \binom{d}{k} L^k")
         st.write("La diferenciación entera tradicional ($d=1$) destruye la memoria predictiva de niveles de soporte y resistencia. La diferenciación fraccionaria halla el orden mínimo $d^*$ que garantiza estacionariedad conservando la mayor memoria.")
         
@@ -1350,7 +1350,7 @@ with tab_theory:
                               annotation_text=f"d={d_slider}")
                               
             fig_mem.update_layout(
-                title=f"Curva de Información Fraccionaria de López de Prado ({asset_fd})",
+                title=f"Curva de Información de Diferenciación Fraccionaria ({asset_fd})",
                 xaxis_title="Orden de Diferenciación (d)", yaxis_title="Métrica Normalizada [0, 1]",
                 height=380, margin=dict(l=20, r=20, t=40, b=20),
                 hovermode="x unified"

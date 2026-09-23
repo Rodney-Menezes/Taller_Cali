@@ -17,7 +17,7 @@ Plataforma Web interactiva basada en **Streamlit**, **Docker**, **Yahoo Finance 
 
 3. **Optimización Multi-Paradigma de Portafolios**:
    - **Markowitz con Ledoit-Wolf**: Maximización de utilidad cuadrática con contracción analítica de covarianza y asignación discreta exacta en títulos enteros de acciones (\$ USD).
-   - **Hierarchical Risk Parity (HRP)**: Machine Learning no supervisado propuesto por Marcos López de Prado. Agrupa activos mediante clustering jerárquico (*single linkage*), cuasi-diagonalización y bisección recursiva con dendrograma interactivo.
+   - **Hierarchical Risk Parity (HRP)**: Machine Learning no supervisado para asignación óptima de capital. Agrupa activos mediante clustering jerárquico (*single linkage*), cuasi-diagonalización y bisección recursiva con dendrograma interactivo.
    - **Black-Litterman con Vistas de Deep Learning (IA)**: Fusión bayesiana entre el equilibrio de mercado CAPM ($\Pi$) y vistas direccionales probabilísticas extraídas de la Red Neuronal BiLSTM ($P, Q, \Omega$).
    - **Simulación Monte Carlo Multivariada**: Proyección estocástica del valor de todo el portafolio mediante descomposición de Cholesky $\Sigma_{\text{LW}} = L L^T$.
 

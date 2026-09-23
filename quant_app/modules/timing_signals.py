@@ -1,9 +1,9 @@
-﻿import numpy as np
+import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 
 def get_fractional_weights(d, size=100, thres=1e-4):
-    """Pesos de diferenciación fraccionaria de López de Prado."""
+    """Pesos de diferenciación fraccionaria para series temporales financieras."""
     w = [1.0]
     for k in range(1, size):
         w_k = -w[-1] / k * (d - k + 1)
